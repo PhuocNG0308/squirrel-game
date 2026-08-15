@@ -1,0 +1,641 @@
+// SPDX-License-Identifier: MIT
+pragma hyperion >=0.0.1;
+
+import "./lib/openzeppelin/token/ERC721/IERC721Receiver.hyp";
+import "./lib/openzeppelin/access/Ownable.hyp";
+import "./lib/openzeppelin/security/Pausable.hyp";
+import "./lib/openzeppelin/security/ReentrancyGuard.hyp";
+import "./lib/CommitReveal.hyp";
+import "./lib/Ops.hyp";
+
+import "./interfaces/ISquirrelGame.hyp";
+import "./SquirrelGame.hyp";
+import "./QBTC.hyp";
+
+/**
+ * QuantumFarm — the operations layer.
+ *
+ *   Farm: Quantum Rigs mine qBTC. They wear out, need coolant, and stop
+ *         earning the moment either runs out.
+ *   Drey: Squirrels take a cut of that yield, gated on acorn energy.
+ *
+ * Emission is a fixed network budget split pro-rata by live hashrate, decaying
+ * 4% per 30-day season. Per-rig rate therefore falls as more rigs join, which
+ * is what lets a hard 21,000,000 cap coexist with an open player count — a
+ * flat per-rig rate would exhaust the cap in days at full participation.
+ *
+ * Claimed qBTC vests over 7 days; withdrawing early burns the unvested share.
+ */
+contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
+    using CommitReveal for uint64;
+
+    /* ------------------------------------------------------------ TYPES */
+
+    /// @dev packs into exactly two slots
+    struct Rig {
+        address owner;        // 160
+        uint16 tokenId;       //  16
+        uint8 durability;     //   8
+        uint40 lastSettled;   //  40
+        uint32 streakDays;    //  32  -> 256
+        uint40 fuelExpiry;    //  40
+        uint40 lastStreakDay; //  40
+        uint40 stakedAt;      //  40
+        uint128 rewardDebt;   // 128  -> 248, accPerHash watermark
+    }
+
+    struct Guard {
+        address owner;        // 160
+        uint16 tokenId;       //  16
+        uint8 energy;         //   8
+        uint40 lastSettled;   //  40 -> 224
+        uint128 taxDebt;      // qbtcPerAlpha watermark
+    }
+
+    /// @dev a claim in escrow, released linearly over VESTING_PERIOD
+    struct Vesting {
+        uint128 amount;
+        uint40 start;
+    }
+
+    /// @dev pending unstake; the 50/50 roll is pledged a block ahead
+    struct ExitCommit {
+        uint16[] tokenIds;
+        uint64 revealBlock;
+        uint256 salt;
+    }
+
+    /* -------------------------------------------------------- CONSTANTS */
+
+    uint8 public constant MAX_ALPHA = 8;
+    uint8 public constant ALPHA_RANKS = 3;
+    uint256 public constant MINIMUM_TO_EXIT = 2 days;
+
+    /* ---------------------------------------------------------- STORAGE */
+
+    SquirrelGame public game;
+    QBTC public qbtc;
+
+    /// @dev emission clock origin
+    uint256 public immutable genesis;
+
+    mapping(uint256 => Rig) public rigs;
+    mapping(uint256 => Guard[]) public drey;   // alpha => guards
+    mapping(uint256 => uint256) public dreyIndices;
+
+    mapping(address => Vesting) public vesting;
+    mapping(address => ExitCommit) public exitCommits;
+    uint256 public commitNonce;
+
+    /// @dev cumulative qBTC per unit of hashrate, scaled by PRECISION
+    uint256 public accPerHash;
+    /// @dev sum of recorded hashrate contributions of staked rigs
+    uint256 public totalHashrate;
+    uint256 public lastAccUpdate;
+
+    uint256 public totalAlphaStaked;
+    uint256 public totalRigsStaked;
+    uint256 public qbtcPerAlpha;
+    uint256 public unaccountedTax;
+
+    /// @dev counts against Ops.MINING_POOL
+    uint256 public totalMined;
+    uint256 public totalBurned;
+
+    /**
+     * A rig ships with one charged coolant cell, granted once per token.
+     *
+     * Without it a new player is deadlocked: fuel costs qBTC, and qBTC only
+     * comes from mining, which needs fuel. Granting it per token rather than
+     * per stake stops the obvious cycle of unstaking and restaking for free
+     * coolant.
+     */
+    mapping(uint256 => bool) public primed;
+    uint256 public constant PRIMING_WINDOW = 1 days;
+
+    bool public rescueEnabled;
+
+    /* ----------------------------------------------------------- EVENTS */
+
+    event RigStaked(address indexed owner, uint256 indexed tokenId);
+    event GuardStaked(address indexed owner, uint256 indexed tokenId, uint256 alpha);
+    event Refuelled(uint256 indexed tokenId, uint256 until_, uint256 cost);
+    event Repaired(uint256 indexed tokenId, uint8 from, uint256 cost);
+    event Mined(uint256 indexed tokenId, uint256 gross, uint256 tax, uint256 net);
+    event Fed(uint256 indexed tokenId, uint8 energy, uint256 cost);
+    event ClaimVested(address indexed owner, uint256 amount);
+    event Withdrawn(address indexed owner, uint256 received, uint256 burned);
+    event ExitCommitted(address indexed owner, uint256 count, uint64 revealBlock);
+    event ExitSettled(address indexed owner, uint256 earned, uint256 stolen);
+    event StreakBroken(uint256 indexed tokenId, uint32 hadDays);
+
+    constructor(address _game, address _qbtc) {
+        game = SquirrelGame(_game);
+        qbtc = QBTC(_qbtc);
+        genesis = block.timestamp;
+        lastAccUpdate = block.timestamp;
+    }
+
+    /* ------------------------------------------------------- ACCOUNTING */
+
+    /**
+     * Advances the global accumulator.
+     *
+     * `totalHashrate` holds each rig's hashrate as recorded at its last
+     * settlement, which is an over-estimate once durability has decayed. That
+     * makes the denominator too large and the distribution slightly
+     * conservative — the shortfall is simply never minted, and the contract can
+     * never over-issue against the pool.
+     */
+    function _updateAcc() internal {
+        if (block.timestamp <= lastAccUpdate) return;
+        if (totalHashrate > 0) {
+            uint256 emission = Ops.emissionBetween(
+                lastAccUpdate - genesis,
+                block.timestamp - genesis
+            );
+            uint256 headroom = Ops.MINING_POOL > totalMined ? Ops.MINING_POOL - totalMined : 0;
+            if (emission > headroom) emission = headroom;
+            if (emission > 0) {
+                accPerHash += (emission * Ops.PRECISION) / totalHashrate;
+            }
+        }
+        lastAccUpdate = block.timestamp;
+    }
+
+    modifier settles() {
+        _updateAcc();
+        _;
+    }
+
+    /// @dev what one full-hashrate rig would earn in a day at the current rate
+    function fullRateDailyYield() public view returns (uint256) {
+        if (totalHashrate == 0) return 0;
+        uint256 perSecond = Ops.seasonRate(Ops.seasonOf(block.timestamp - genesis));
+        return (perSecond * 1 days * Ops.PRECISION) / totalHashrate;
+    }
+
+    /* ----------------------------------------------------------- STAKING */
+
+    function stake(uint16[] calldata tokenIds) external whenNotPaused nonReentrant settles {
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            uint16 id = tokenIds[i];
+            if (id == 0) continue;
+            require(game.ownerOf(id) == _msgSender(), "Not your token");
+            game.transferFrom(_msgSender(), address(this), id);
+            _stakeOne(_msgSender(), id);
+        }
+    }
+
+    /// @dev called by SquirrelGame when a mint is staked directly
+    function addManyToFarmAndDrey(address account, uint16[] calldata tokenIds)
+        external
+        settles
+    {
+        require(_msgSender() == address(game), "Only the collection");
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            if (tokenIds[i] == 0) continue; // slot skipped by a stolen mint
+            _stakeOne(account, tokenIds[i]);
+        }
+    }
+
+    function _stakeOne(address account, uint16 id) internal {
+        if (game.getTokenTraits(id).isQuantum) {
+            // A rig enters at full durability but with no fuel: it earns
+            // nothing until its owner pays for coolant.
+            rigs[id] = Rig({
+                owner: account,
+                tokenId: id,
+                durability: Ops.DURABILITY_MAX,
+                lastSettled: uint40(block.timestamp),
+                streakDays: 0,
+                fuelExpiry: uint40(block.timestamp + (primed[id] ? 0 : PRIMING_WINDOW)),
+                lastStreakDay: uint40(block.timestamp / 1 days),
+                stakedAt: uint40(block.timestamp),
+                rewardDebt: uint128(accPerHash)
+            });
+            primed[id] = true;
+            totalHashrate += Ops.hashrateMultiplier(Ops.DURABILITY_MAX);
+            totalRigsStaked += 1;
+            emit RigStaked(account, id);
+        } else {
+            uint256 alpha = _alphaFor(id);
+            totalAlphaStaked += alpha;
+            dreyIndices[id] = drey[alpha].length;
+            drey[alpha].push(Guard({
+                owner: account,
+                tokenId: id,
+                energy: Ops.ENERGY_MAX,
+                lastSettled: uint40(block.timestamp),
+                taxDebt: uint128(qbtcPerAlpha)
+            }));
+            emit GuardStaked(account, id, alpha);
+        }
+    }
+
+    /* ------------------------------------------------------------- RIGS */
+
+    /**
+     * Settles a rig's mining up to now, then returns what it earned net of tax.
+     *
+     * Earnings stop at `fuelExpiry`, so an unfuelled rig accrues nothing. The
+     * accumulator delta is prorated by the fuelled share of the elapsed window;
+     * with prepayment capped at 7 days that window is short enough for the
+     * approximation to stay tight.
+     */
+    function _settleRig(Rig storage r) internal returns (uint256 net) {
+        uint256 from = r.lastSettled;
+        uint256 to = block.timestamp;
+        if (to <= from) return 0;
+
+        uint256 fuelledTo = r.fuelExpiry < to ? r.fuelExpiry : to;
+        if (fuelledTo > from && r.durability > 0) {
+            uint256 fuelled = fuelledTo - from;
+            uint256 avgHash = Ops.averageHashrate(r.durability, fuelled);
+            uint256 streak = Ops.streakMultiplier(r.streakDays);
+
+            uint256 accDelta = accPerHash - r.rewardDebt;
+            uint256 gross = (accDelta * avgHash) / Ops.PRECISION;
+            // prorate to the fuelled share of the window
+            gross = (gross * fuelled) / (to - from);
+            // streak bonus, capped at +25%
+            gross = (gross * streak) / Ops.PRECISION;
+
+            uint256 headroom = Ops.MINING_POOL > totalMined ? Ops.MINING_POOL - totalMined : 0;
+            if (gross > headroom) gross = headroom;
+
+            if (gross > 0) {
+                totalMined += gross;
+                uint256 tax = (gross * Ops.TAX_PCT) / 100;
+                _payDrey(tax);
+                net = gross - tax;
+                emit Mined(r.tokenId, gross, tax, net);
+            }
+
+            // durability only decays while actually mining
+            _setDurability(r, Ops.decayed(r.durability, fuelled));
+        }
+
+        r.lastSettled = uint40(to);
+        r.rewardDebt = uint128(accPerHash);
+    }
+
+    /**
+     * Writes durability and keeps `totalHashrate` in step.
+     *
+     * A rig's contribution tracks durability alone, not whether it currently
+     * has fuel. An unfuelled rig therefore keeps inflating the denominator
+     * until someone settles it, which under-distributes to everyone else — the
+     * shortfall is simply never minted. The alternative, zeroing the
+     * contribution the instant fuel lapses, would need a keeper to notice the
+     * lapse, since nothing on chain fires at an expiry.
+     */
+    function _setDurability(Rig storage r, uint8 next) internal {
+        uint256 was = Ops.hashrateMultiplier(r.durability);
+        uint256 now_ = Ops.hashrateMultiplier(next);
+        if (now_ > was) totalHashrate += (now_ - was);
+        else if (was > now_) totalHashrate -= (was - now_);
+        r.durability = next;
+    }
+
+    /**
+     * Buys coolant for `duration`, up to 7 days ahead, and settles first.
+     *
+     * The original design allowed only a 24-hour window, which forced every
+     * player on chain daily for no gameplay benefit. Prepaying a week costs the
+     * same per day and cuts refuelling gas by 86%.
+     */
+    function refuel(uint16[] calldata tokenIds, uint256 duration)
+        external
+        whenNotPaused
+        nonReentrant
+        settles
+    {
+        require(duration > 0 && duration <= Ops.MAX_PREPAY, "Window must be 1s to 7 days");
+        uint256 daily = fullRateDailyYield();
+        uint256 owed;
+        uint256 cost;
+
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            Rig storage r = rigs[tokenIds[i]];
+            require(r.owner == _msgSender(), "Not your rig");
+            owed += _settleRig(r);
+            _bumpStreak(r);
+
+            uint256 c = Ops.coolantCost(duration, daily);
+            cost += c;
+            uint256 base = r.fuelExpiry > block.timestamp ? r.fuelExpiry : block.timestamp;
+            r.fuelExpiry = uint40(base + duration);
+            emit Refuelled(r.tokenId, r.fuelExpiry, c);
+        }
+
+        _burnFrom(_msgSender(), cost);
+        if (owed > 0) _vest(_msgSender(), owed);
+    }
+
+    function repair(uint16[] calldata tokenIds)
+        external
+        whenNotPaused
+        nonReentrant
+        settles
+    {
+        uint256 daily = fullRateDailyYield();
+        uint256 owed;
+        uint256 cost;
+
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            Rig storage r = rigs[tokenIds[i]];
+            require(r.owner == _msgSender(), "Not your rig");
+            owed += _settleRig(r);
+
+            uint8 before = r.durability;
+            cost += Ops.repairCost(before, daily);
+            _setDurability(r, Ops.DURABILITY_MAX);
+            emit Repaired(r.tokenId, before, cost);
+        }
+
+        _burnFrom(_msgSender(), cost);
+        if (owed > 0) _vest(_msgSender(), owed);
+    }
+
+    /// @dev settle and bank yield without unstaking; no random outcome here
+    function claim(uint16[] calldata tokenIds)
+        external
+        whenNotPaused
+        nonReentrant
+        settles
+    {
+        uint256 owed;
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            uint16 id = tokenIds[i];
+            if (game.getTokenTraits(id).isQuantum) {
+                Rig storage r = rigs[id];
+                require(r.owner == _msgSender(), "Not your rig");
+                owed += _settleRig(r);
+            } else {
+                owed += _settleGuard(id, _msgSender());
+            }
+        }
+        if (owed > 0) _vest(_msgSender(), owed);
+    }
+
+    /**
+     * Uptime streak: one point per consecutive day serviced while the rig is
+     * healthy. Capped at 25 days by Ops.streakMultiplier — an uncapped streak
+     * compounds into exactly the permanent early-player advantage that seasonal
+     * decay exists to remove.
+     */
+    function _bumpStreak(Rig storage r) internal {
+        uint40 today = uint40(block.timestamp / 1 days);
+        if (today == r.lastStreakDay) return;
+        if (today == r.lastStreakDay + 1 && r.durability >= 75) {
+            r.streakDays += 1;
+        } else {
+            if (r.streakDays > 0) emit StreakBroken(r.tokenId, r.streakDays);
+            r.streakDays = r.durability >= 75 ? 1 : 0;
+        }
+        r.lastStreakDay = today;
+    }
+
+    /* ----------------------------------------------------------- GUARDS */
+
+    function _settleGuard(uint16 id, address owner) internal returns (uint256 net) {
+        uint256 alpha = _alphaFor(id);
+        Guard storage g = drey[alpha][dreyIndices[id]];
+        require(g.owner == owner, "Not your squirrel");
+
+        uint256 elapsed = block.timestamp - g.lastSettled;
+        g.energy = Ops.energyAfter(g.energy, elapsed);
+
+        uint256 share = Ops.taxShareMultiplier(g.energy);
+        uint256 owed = alpha * (qbtcPerAlpha - g.taxDebt);
+        net = (owed * share) / Ops.PRECISION;
+
+        // the portion an exhausted squirrel forfeits stays with the Drey
+        if (owed > net) _payDrey(owed - net);
+
+        g.taxDebt = uint128(qbtcPerAlpha);
+        g.lastSettled = uint40(block.timestamp);
+    }
+
+    /// @dev restore acorn energy; the qBTC spent is burned
+    function feed(uint16[] calldata tokenIds) external whenNotPaused nonReentrant settles {
+        uint256 daily = fullRateDailyYield();
+        uint256 cost;
+        uint256 owed;
+
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            uint16 id = tokenIds[i];
+            owed += _settleGuard(id, _msgSender());
+            Guard storage g = drey[_alphaFor(id)][dreyIndices[id]];
+            cost += Ops.acornCost(g.energy, daily);
+            g.energy = Ops.ENERGY_MAX;
+            emit Fed(id, g.energy, cost);
+        }
+
+        _burnFrom(_msgSender(), cost);
+        if (owed > 0) _vest(_msgSender(), owed);
+    }
+
+    function _payDrey(uint256 amount) internal {
+        if (amount == 0) return;
+        if (totalAlphaStaked == 0) {
+            unaccountedTax += amount;
+            return;
+        }
+        qbtcPerAlpha += (amount + unaccountedTax) / totalAlphaStaked;
+        unaccountedTax = 0;
+    }
+
+    /* ---------------------------------------------------------- VESTING */
+
+    /**
+     * Moves a settled claim into escrow.
+     *
+     * Whatever has already vested is paid out; whatever has not is carried into
+     * the new bucket rather than burned. Burning here would make claiming twice
+     * in a week destroy the earlier claim's unvested share — a trap that
+     * punishes ordinary play. The forfeit belongs on `withdraw`, where leaving
+     * early is the player's own decision.
+     */
+    function _vest(address account, uint256 amount) internal {
+        Vesting storage v = vesting[account];
+        uint256 carried;
+        if (v.amount > 0) {
+            (uint256 releasable, uint256 unvested) = _split(v);
+            if (releasable > 0) qbtc.mint(account, releasable);
+            carried = unvested;
+        }
+        v.amount = uint128(carried + amount);
+        v.start = uint40(block.timestamp);
+        emit ClaimVested(account, carried + amount);
+    }
+
+    function _split(Vesting storage v) internal view returns (uint256 releasable, uint256 forfeit) {
+        uint256 f = Ops.vestedFraction(block.timestamp - v.start);
+        releasable = (uint256(v.amount) * f) / Ops.PRECISION;
+        forfeit = uint256(v.amount) - releasable;
+    }
+
+    /// @dev withdraw escrowed qBTC; the unvested share is burned, not returned
+    function withdraw() external nonReentrant {
+        Vesting storage v = vesting[_msgSender()];
+        require(v.amount > 0, "Nothing vesting");
+        (uint256 releasable, uint256 forfeit) = _split(v);
+        v.amount = 0;
+        if (releasable > 0) qbtc.mint(_msgSender(), releasable);
+        if (forfeit > 0) totalBurned += forfeit;
+        emit Withdrawn(_msgSender(), releasable, forfeit);
+    }
+
+    function vestingOf(address account)
+        external
+        view
+        returns (uint256 amount, uint256 releasable, uint256 forfeit)
+    {
+        Vesting storage v = vesting[account];
+        if (v.amount == 0) return (0, 0, 0);
+        uint256 f = Ops.vestedFraction(block.timestamp - v.start);
+        releasable = (uint256(v.amount) * f) / Ops.PRECISION;
+        return (v.amount, releasable, uint256(v.amount) - releasable);
+    }
+
+    /* ------------------------------------------------------------- EXIT */
+
+    /// @dev step 1 of 2; the 50/50 roll is pledged to a future block hash
+    function requestExit(uint16[] calldata tokenIds) external whenNotPaused nonReentrant {
+        require(tokenIds.length > 0, "Nothing to exit");
+        require(exitCommits[_msgSender()].tokenIds.length == 0, "Settle your pending exit");
+
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            uint16 id = tokenIds[i];
+            if (game.getTokenTraits(id).isQuantum) {
+                Rig storage r = rigs[id];
+                require(r.owner == _msgSender(), "Not your rig");
+                require(block.timestamp - r.stakedAt >= MINIMUM_TO_EXIT, "Two-day minimum");
+            } else {
+                require(drey[_alphaFor(id)][dreyIndices[id]].owner == _msgSender(), "Not yours");
+            }
+        }
+
+        uint64 rb = CommitReveal.targetBlock();
+        exitCommits[_msgSender()] = ExitCommit({
+            tokenIds: tokenIds,
+            revealBlock: rb,
+            salt: CommitReveal.salt(_msgSender(), commitNonce++)
+        });
+        emit ExitCommitted(_msgSender(), tokenIds.length, rb);
+    }
+
+    /// @dev step 2 of 2; permissionless, and the outcome was fixed at commit
+    function executeExit(address owner) public whenNotPaused nonReentrant settles {
+        ExitCommit memory c = exitCommits[owner];
+        require(c.tokenIds.length > 0, "No pending exit");
+
+        uint256 seed = CommitReveal.seed(c.revealBlock, c.salt);
+        delete exitCommits[owner];
+
+        uint256 owed;
+        uint256 stolen;
+
+        for (uint256 i = 0; i < c.tokenIds.length; i++) {
+            uint16 id = c.tokenIds[i];
+            if (game.getTokenTraits(id).isQuantum) {
+                Rig storage r = rigs[id];
+                uint256 net = _settleRig(r);
+                if (CommitReveal.derive(seed, i) & 1 == 1) {
+                    _payDrey(net);
+                    stolen += net;
+                    net = 0;
+                }
+                owed += net;
+
+                totalHashrate -= Ops.hashrateMultiplier(r.durability);
+                totalRigsStaked -= 1;
+                delete rigs[id];
+                game.transferFrom(address(this), owner, id);
+            } else {
+                owed += _settleGuard(id, owner);
+                uint256 alpha = _alphaFor(id);
+                totalAlphaStaked -= alpha;
+                Guard memory last = drey[alpha][drey[alpha].length - 1];
+                drey[alpha][dreyIndices[id]] = last;
+                dreyIndices[last.tokenId] = dreyIndices[id];
+                drey[alpha].pop();
+                delete dreyIndices[id];
+                game.transferFrom(address(this), owner, id);
+            }
+        }
+
+        if (owed > 0) _vest(owner, owed);
+        emit ExitSettled(owner, owed, stolen);
+    }
+
+    function executeExit() external {
+        executeExit(_msgSender());
+    }
+
+    function reanchorExit(address owner) external {
+        ExitCommit storage c = exitCommits[owner];
+        require(c.tokenIds.length > 0, "No pending exit");
+        require(CommitReveal.isExpired(c.revealBlock), "Still revealable");
+        c.revealBlock = CommitReveal.targetBlock();
+        c.salt = CommitReveal.salt(owner, commitNonce++);
+    }
+
+    /* ----------------------------------------------------------- HELPERS */
+
+    function _alphaFor(uint256 tokenId) internal view returns (uint8) {
+        return MAX_ALPHA - game.getTokenTraits(tokenId).tierIndex;
+    }
+
+    function _burnFrom(address account, uint256 amount) internal {
+        if (amount == 0) return;
+        qbtc.burn(account, amount);
+        totalBurned += amount;
+    }
+
+    /// @dev alpha-weighted pick of a staked squirrel owner, for stolen mints
+    function randomSquirrelOwner(uint256 seed) external view returns (address) {
+        if (totalAlphaStaked == 0) return address(0x0);
+        uint256 bucket = (seed & 0xFFFFFFFF) % totalAlphaStaked;
+        uint256 cumulative;
+        seed >>= 32;
+        for (uint256 i = MAX_ALPHA - ALPHA_RANKS + 1; i <= MAX_ALPHA; i++) {
+            cumulative += drey[i].length * i;
+            if (bucket >= cumulative) continue;
+            return drey[i][seed % drey[i].length].owner;
+        }
+        return address(0x0);
+    }
+
+    function rigState(uint16 tokenId)
+        external
+        view
+        returns (uint8 durability, uint256 fuelExpiry, uint32 streakDays, bool mining)
+    {
+        Rig storage r = rigs[tokenId];
+        uint256 fuelledTo = r.fuelExpiry < block.timestamp ? r.fuelExpiry : block.timestamp;
+        uint256 window = fuelledTo > r.lastSettled ? fuelledTo - r.lastSettled : 0;
+        durability = Ops.decayed(r.durability, window);
+        return (durability, r.fuelExpiry, r.streakDays, block.timestamp < r.fuelExpiry && durability > 0);
+    }
+
+    /* ------------------------------------------------------------- ADMIN */
+
+    function setRescueEnabled(bool v) external onlyOwner { rescueEnabled = v; }
+
+    function setPaused(bool v) external onlyOwner {
+        if (v) _pause(); else _unpause();
+    }
+
+    function onERC721Received(address, address from, uint256, bytes calldata)
+        external
+        pure
+        override
+        returns (bytes4)
+    {
+        require(from == address(0x0), "Send tokens via stake()");
+        return IERC721Receiver.onERC721Received.selector;
+    }
+}
