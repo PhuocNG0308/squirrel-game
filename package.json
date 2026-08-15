@@ -16,7 +16,8 @@
     "simulate": "node scripts/simulate.js",
     "inflation": "node scripts/inflation.js",
     "gdd": "node scripts/gdd-model.js",
-    "gas": "node scripts/gas-model.js"
+    "gas": "node scripts/gas-model.js",
+    "wire": "node scripts/wire.js"
   },
   "author": "",
   "license": "MIT",

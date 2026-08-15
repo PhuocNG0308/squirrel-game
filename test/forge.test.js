@@ -247,10 +247,19 @@ async function main() {
     const a = await acquire(c, game, ALICE, 2, 0, cur);
     await stake(c, game, farm, ALICE, a.rigs);
 
+    const day0 = Number(decodeUint(await c.call(quests, OWNER, encodeCall('today()', [], []))));
     await c.call(quests, ALICE, encodeCall('clearDaily(uint16[])', ['uint16[]'], [a.rigs]));
+
+    let early = false;
+    try { await c.call(quests, ALICE, encodeCall('claimDaily(uint256)', ['uint256'], [day0])); }
+    catch (e) { early = true; }
+    check('a day cannot be settled while it is still running', early);
+
+    c.advanceTime(DAY);
+    await c.call(quests, ALICE, encodeCall('claimDaily(uint256)', ['uint256'], [day0]));
     const v = await c.call(quests, OWNER, encodeCall('vestingOf(address)', ['address'], [ALICE]));
     const amount = BigInt('0x' + v.replace(/^0x/, '').match(/.{64}/g)[0]);
-    check('a fresh fleet clears the daily', amount > 0n, `${fmt(amount)} qBTC vesting`);
+    check('a closed day pays the qualified fleet', amount > 0n, `${fmt(amount)} qBTC vesting`);
 
     let threw = false;
     try {
@@ -332,7 +341,10 @@ async function main() {
     const cur = { i: 1 };
     const a = await acquire(c, game, ALICE, 1, 0, cur);
     await stake(c, game, farm, ALICE, a.rigs);
+    const d0 = Number(decodeUint(await c.call(quests, OWNER, encodeCall('today()', [], []))));
     await c.call(quests, ALICE, encodeCall('clearDaily(uint16[])', ['uint16[]'], [a.rigs]));
+    c.advanceTime(DAY);
+    await c.call(quests, ALICE, encodeCall('claimDaily(uint256)', ['uint256'], [d0]));
 
     const v0 = await c.call(quests, OWNER, encodeCall('vestingOf(address)', ['address'], [ALICE]));
     const w0 = v0.replace(/^0x/, '').match(/.{64}/g);
@@ -350,6 +362,49 @@ async function main() {
     await c.call(quests, ALICE, encodeCall('withdraw()', [], []));
     const got = (await balanceOf(c, qbtc, ALICE)) - before;
     check('the full amount pays out after fourteen days', got === total, `${fmt(got)} qBTC`);
+  }
+
+  section('QUESTS: THE BUDGET HOLDS');
+  {
+    // Paying each claimant as they arrive would give the first player the
+    // whole day's budget and the second half of it again. Two players sharing
+    // a day must together receive at most one budget.
+    const { c, game, farm, quests } = await deployStack();
+    const cur = { i: 1 };
+    const a = await acquire(c, game, ALICE, 1, 0, cur);
+    const b = await acquire(c, game, BOB, 3, 0, cur);
+    await stake(c, game, farm, ALICE, a.rigs);
+    await stake(c, game, farm, BOB, b.rigs);
+
+    const day = Number(decodeUint(await c.call(quests, OWNER, encodeCall('today()', [], []))));
+    await c.call(quests, ALICE, encodeCall('clearDaily(uint16[])', ['uint16[]'], [a.rigs]));
+    await c.call(quests, BOB, encodeCall('clearDaily(uint16[])', ['uint16[]'], [b.rigs]));
+
+    c.advanceTime(DAY);
+    await c.call(quests, ALICE, encodeCall('claimDaily(uint256)', ['uint256'], [day]));
+    await c.call(quests, BOB, encodeCall('claimDaily(uint256)', ['uint256'], [day]));
+
+    const av = await c.call(quests, OWNER, encodeCall('vestingOf(address)', ['address'], [ALICE]));
+    const bv = await c.call(quests, OWNER, encodeCall('vestingOf(address)', ['address'], [BOB]));
+    const aAmt = BigInt('0x' + av.replace(/^0x/, '').match(/.{64}/g)[0]);
+    const bAmt = BigInt('0x' + bv.replace(/^0x/, '').match(/.{64}/g)[0]);
+    const budget = decodeUint(await c.call(quests, OWNER,
+      encodeCall('DAILY_BUDGET()', [], [])));
+
+    check('two players never exceed one day of budget', aAmt + bAmt <= budget,
+      `${fmt(aAmt)} + ${fmt(bAmt)} vs budget ${fmt(budget)}`);
+    check('the split follows the rig count 1:3',
+      bAmt === aAmt * 3n, `${fmt(aAmt)} vs ${fmt(bAmt)}`);
+
+    let threw = false;
+    try { await c.call(quests, ALICE, encodeCall('claimDaily(uint256)', ['uint256'], [day])); }
+    catch (e) { threw = true; }
+    check('a day cannot be settled twice', threw);
+
+    const awarded = decodeUint(await c.call(quests, OWNER,
+      encodeCall('totalAwarded()', [], [])));
+    check('the running total matches what was handed out', awarded === aAmt + bAmt,
+      `${fmt(awarded)} qBTC`);
   }
 
   console.log(`\n${'='.repeat(60)}`);

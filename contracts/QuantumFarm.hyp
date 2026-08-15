@@ -196,11 +196,19 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
         return Ops.seasonOf(block.timestamp - genesis);
     }
 
-    /// @dev what one full-hashrate rig would earn in a day at the current rate
+    /**
+     * What one full-hashrate rig would earn in a day at the current rate.
+     *
+     * This is the reference price for coolant, repairs, acorns and firewalls,
+     * so the denominator is floored at one full rig. Dividing by the raw
+     * `totalHashrate` would send every price to zero the moment the last
+     * staked rig hit zero durability — letting a player run a fleet into the
+     * ground and then revive it for nothing.
+     */
     function fullRateDailyYield() public view returns (uint256) {
-        if (totalHashrate == 0) return 0;
+        uint256 denom = totalHashrate < Ops.PRECISION ? Ops.PRECISION : totalHashrate;
         uint256 perSecond = Ops.seasonRate(Ops.seasonOf(block.timestamp - genesis));
-        return (perSecond * 1 days * Ops.PRECISION) / totalHashrate;
+        return (perSecond * 1 days * Ops.PRECISION) / denom;
     }
 
     /* ----------------------------------------------------------- STAKING */

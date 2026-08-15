@@ -35,15 +35,9 @@
         "internalType": "uint256",
         "name": "rigs",
         "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "reward",
-        "type": "uint256"
       }
     ],
-    "name": "DailyCleared",
+    "name": "DailyQualified",
     "type": "event"
   },
   {
@@ -108,6 +102,37 @@
       {
         "indexed": false,
         "internalType": "uint256",
+        "name": "period",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
+        "name": "amount",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "weekly",
+        "type": "bool"
+      }
+    ],
+    "name": "QuestPaid",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint256",
         "name": "received",
         "type": "uint256"
       },
@@ -141,20 +166,27 @@
         "internalType": "uint256",
         "name": "rigs",
         "type": "uint256"
-      },
-      {
-        "indexed": false,
-        "internalType": "uint256",
-        "name": "reward",
-        "type": "uint256"
       }
     ],
-    "name": "WeeklyCleared",
+    "name": "WeeklyQualified",
     "type": "event"
   },
   {
     "inputs": [],
     "name": "ACHIEVEMENT_BPS",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "ACHIEVEMENT_BUDGET",
     "outputs": [
       {
         "internalType": "uint256",
@@ -302,6 +334,32 @@
     "type": "function"
   },
   {
+    "inputs": [],
+    "name": "achievementPaid",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "day",
+        "type": "uint256"
+      }
+    ],
+    "name": "claimDaily",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
     "inputs": [
       {
         "internalType": "uint16",
@@ -315,6 +373,19 @@
       }
     ],
     "name": "claimMilestone",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "week",
+        "type": "uint256"
+      }
+    ],
+    "name": "claimWeekly",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -353,12 +424,60 @@
         "type": "uint256"
       },
       {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "dailyCount",
+    "outputs": [
+      {
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
       }
     ],
-    "name": "dailyClaimed",
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "dailyPaid",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "dailyQualified",
     "outputs": [
       {
         "internalType": "bool",
@@ -377,7 +496,7 @@
         "type": "uint256"
       }
     ],
-    "name": "dailyQualified",
+    "name": "dailyTotal",
     "outputs": [
       {
         "internalType": "uint256",
@@ -486,7 +605,7 @@
   },
   {
     "inputs": [],
-    "name": "totalPaid",
+    "name": "totalAwarded",
     "outputs": [
       {
         "internalType": "uint256",
@@ -566,12 +685,60 @@
         "type": "uint256"
       },
       {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "weeklyCount",
+    "outputs": [
+      {
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
       }
     ],
-    "name": "weeklyClaimed",
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "weeklyPaid",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "weeklyQualified",
     "outputs": [
       {
         "internalType": "bool",
@@ -590,7 +757,7 @@
         "type": "uint256"
       }
     ],
-    "name": "weeklyQualified",
+    "name": "weeklyTotal",
     "outputs": [
       {
         "internalType": "uint256",

@@ -4,3 +4,6 @@ node_modules/
 build/
 cache/
 deployments/*.local.json
+
+# deployment logs
+*.log

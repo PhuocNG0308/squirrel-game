@@ -1,0 +1,102 @@
+// SPDX-License-Identifier: MIT
+pragma hyperion >=0.0.1;
+
+/**
+ * ChunkedDeployer — deploys contracts too large to fit in one transaction.
+ *
+ * QRL's post-quantum signatures make deployment payloads unusually heavy: an
+ * ML-DSA-87 signature plus its public key add roughly 7.2KB to every
+ * transaction, and the public RPC proxy caps a request body at 50KB. That
+ * leaves about 18KB for creation bytecode, well under the 24,576-byte limit
+ * the chain itself enforces — so a contract can be perfectly valid and still
+ * be undeployable through the public endpoint.
+ *
+ * The fix is to separate delivery from execution. Creation bytecode is
+ * uploaded across as many transactions as it takes, then assembled and run
+ * through CREATE in one final call.
+ *
+ * Because CREATE makes this contract the deployer, anything using Ownable
+ * ends up owned by the buffer's owner rather than by them. `execute` exists to
+ * hand ownership straight back, and is restricted to whoever deployed the
+ * target in the first place.
+ */
+contract ChunkedDeployer {
+    /**
+     * Chunks are kept separate and only joined in memory at deployment.
+     *
+     * Concatenating into one growing `bytes` on every append would rewrite the
+     * whole buffer each time, so the gas cost would climb quadratically and a
+     * 20KB contract would not fit in a block. Storing each piece once keeps
+     * every append flat.
+     */
+    mapping(address => bytes[]) private chunks;
+    /// @dev deployed contract => the account that uploaded its bytecode
+    mapping(address => address) public deployedBy;
+
+    event ChunkAppended(address indexed uploader, uint256 index, uint256 size);
+    event Deployed(address indexed uploader, address indexed target, uint256 size);
+
+    /// @dev appends one piece; call as many times as the bytecode needs
+    function append(bytes calldata chunk) external {
+        chunks[msg.sender].push(chunk);
+        emit ChunkAppended(msg.sender, chunks[msg.sender].length - 1, chunk.length);
+    }
+
+    function reset() external {
+        delete chunks[msg.sender];
+    }
+
+    function chunkCount() external view returns (uint256) {
+        return chunks[msg.sender].length;
+    }
+
+    function bufferSize() external view returns (uint256 total) {
+        bytes[] storage cs = chunks[msg.sender];
+        for (uint256 i = 0; i < cs.length; i++) total += cs[i].length;
+    }
+
+    function _assemble(address uploader) internal view returns (bytes memory code) {
+        bytes[] storage cs = chunks[uploader];
+        for (uint256 i = 0; i < cs.length; i++) {
+            code = bytes.concat(code, cs[i]);
+        }
+    }
+
+    function bufferHash() external view returns (bytes32) {
+        return keccak256(_assemble(msg.sender));
+    }
+
+    /**
+     * Assembles the buffer and creates the contract.
+     *
+     * @param expected keccak256 of the full creation bytecode. Deployment is a
+     *        one-way action, so the caller proves the buffer arrived intact
+     *        rather than discovering a truncated upload afterwards.
+     */
+    function deployBuffered(bytes32 expected) external returns (address target) {
+        bytes memory code = _assemble(msg.sender);
+        require(code.length > 0, "Nothing buffered");
+        require(keccak256(code) == expected, "Buffer does not match");
+        delete chunks[msg.sender];
+
+        assembly {
+            target := create(0, add(code, 0x20), mload(code))
+        }
+        require(target != address(0), "CREATE failed");
+
+        deployedBy[target] = msg.sender;
+        emit Deployed(msg.sender, target, code.length);
+    }
+
+    /**
+     * Forwards a call to a contract this deployer created, on behalf of the
+     * account that uploaded it. Its only intended use is handing ownership
+     * back, since CREATE leaves this contract as the owner.
+     */
+    function execute(address target, bytes calldata data) external returns (bytes memory) {
+        require(deployedBy[target] == msg.sender, "Not your deployment");
+        (bool ok, bytes memory out) = target.call(data);
+        require(ok, "Forwarded call reverted");
+        return out;
+    }
+}

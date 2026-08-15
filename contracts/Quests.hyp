@@ -12,19 +12,18 @@ import "./QBTC.hyp";
  * Quests — the only track that pays a brand-new player on day one.
  *
  * Quests are pulled, not pushed: the player calls in and the contract checks
- * the condition against farm state. Tracking every action as it happened would
- * mean a storage write on every refuel and repair, for a reward that most
- * players collect in one transaction anyway.
+ * the condition against farm state, instead of writing storage on every refuel
+ * and repair for a reward most players collect in one go.
  *
- * Every quest is scored per NFT and paid pro-rata inside a fixed budget, which
- * keeps the whole track Sybil-neutral for the same reason the season ladders
- * are: splitting a fleet across wallets changes neither the qualifying tokens
- * nor the budget they divide.
+ * Qualifying and being paid are deliberately separate steps. A pro-rata share
+ * cannot be computed while the day is still running — paying each claimant as
+ * they arrive would hand the first player the whole budget and the second half
+ * of it again. So `clearDaily` records that a rig qualified, and `claimDaily`
+ * settles a day that has closed, when the divisor is final. Players batch the
+ * claims; the budget is never exceeded.
  *
- * Achievements sit behind per-rig tenure — 30, 60 and 90 days staked on one
- * token. That flattens the payout bunching that would otherwise land in months
- * two and three, and it makes farming quests across alts cost exactly as much
- * as playing properly.
+ * Every payout is also checked against the pool as a whole, so no combination
+ * of quests can mint more than the track was allocated.
  */
 contract Quests is Ownable, ReentrancyGuard {
     IQuantumFarm public farm;
@@ -33,7 +32,6 @@ contract Quests is Ownable, ReentrancyGuard {
     /// @dev the quest track's share of the 21,000,000 cap
     uint256 public constant QUEST_POOL = 3_150_000 ether;
     uint256 public constant QUEST_SEASONS = 60;
-    /// @dev flat across its horizon, then exhausted
     uint256 public constant SEASON_BUDGET = QUEST_POOL / QUEST_SEASONS;
 
     uint256 public constant DAILY_BPS = 4500;
@@ -42,28 +40,42 @@ contract Quests is Ownable, ReentrancyGuard {
 
     uint256 public constant DAILY_BUDGET = SEASON_BUDGET * DAILY_BPS / 10000 / 30;
     uint256 public constant WEEKLY_BUDGET = SEASON_BUDGET * WEEKLY_BPS / 10000 / 4;
+    uint256 public constant ACHIEVEMENT_BUDGET = QUEST_POOL * ACHIEVEMENT_BPS / 10000;
 
-    /// @dev tenure milestones, in days
+    /**
+     * Milestone payouts are flat, so they must be sized against the whole
+     * achievement budget rather than picked for feel: 50,000 tokens times
+     * three milestones is 150,000 possible claims, and the budget is
+     * 787,500 qBTC. Anything above ~5 qBTC per milestone would overrun it.
+     */
     uint16[3] public MILESTONES = [30, 60, 90];
-    uint256 public constant MILESTONE_REWARD = 2_000 ether;
+    uint256 public constant MILESTONE_REWARD = 5 ether;
 
-    /// @dev day index => rigs that have already claimed
-    mapping(uint256 => mapping(uint256 => bool)) public dailyClaimed;
-    mapping(uint256 => uint256) public dailyQualified;
-    mapping(uint256 => mapping(uint256 => bool)) public weeklyClaimed;
-    mapping(uint256 => uint256) public weeklyQualified;
-    /// @dev tokenId => milestone index => claimed
+    uint256 public achievementPaid;
+    uint256 public totalAwarded;
+
+    /// @dev day => rig => already qualified
+    mapping(uint256 => mapping(uint256 => bool)) public dailyQualified;
+    /// @dev day => player => rigs qualified
+    mapping(uint256 => mapping(address => uint256)) public dailyCount;
+    mapping(uint256 => uint256) public dailyTotal;
+    mapping(uint256 => mapping(address => bool)) public dailyPaid;
+
+    mapping(uint256 => mapping(uint256 => bool)) public weeklyQualified;
+    mapping(uint256 => mapping(address => uint256)) public weeklyCount;
+    mapping(uint256 => uint256) public weeklyTotal;
+    mapping(uint256 => mapping(address => bool)) public weeklyPaid;
+
     mapping(uint256 => mapping(uint8 => bool)) public milestoneClaimed;
-
-    uint256 public totalPaid;
 
     /// @dev quest rewards vest longer than mining, at 14 days
     struct Vesting { uint128 amount; uint40 start; }
     mapping(address => Vesting) public vesting;
     uint256 public constant QUEST_VESTING = 14 days;
 
-    event DailyCleared(address indexed owner, uint256 day, uint256 rigs, uint256 reward);
-    event WeeklyCleared(address indexed owner, uint256 week, uint256 rigs, uint256 reward);
+    event DailyQualified(address indexed owner, uint256 day, uint256 rigs);
+    event WeeklyQualified(address indexed owner, uint256 week, uint256 rigs);
+    event QuestPaid(address indexed owner, uint256 period, uint256 amount, bool weekly);
     event MilestoneCleared(address indexed owner, uint256 tokenId, uint8 milestone, uint256 reward);
     event QuestWithdrawn(address indexed owner, uint256 received, uint256 forfeited);
 
@@ -72,30 +84,27 @@ contract Quests is Ownable, ReentrancyGuard {
         qbtc = QBTC(_qbtc);
     }
 
-    function today() public view returns (uint256) {
-        return block.timestamp / 1 days;
+    function today() public view returns (uint256) { return block.timestamp / 1 days; }
+    function thisWeek() public view returns (uint256) { return block.timestamp / 7 days; }
+
+    function _open() internal view returns (bool) {
+        return farm.seasonNow() < QUEST_SEASONS && totalAwarded < QUEST_POOL;
     }
 
-    function thisWeek() public view returns (uint256) {
-        return block.timestamp / 7 days;
-    }
-
-    function _exhausted() internal view returns (bool) {
-        return farm.seasonNow() >= QUEST_SEASONS;
+    /// @dev never award more than the track was allocated
+    function _remaining() internal view returns (uint256) {
+        return QUEST_POOL > totalAwarded ? QUEST_POOL - totalAwarded : 0;
     }
 
     /* ------------------------------------------------------------ DAILY */
 
     /**
      * "Keep the fleet running": every listed rig must be fuelled and above 75%
-     * durability right now.
-     *
-     * The day's budget is split across everyone who qualifies, so the reward
-     * per rig falls as more players clear it — the budget is the cap, not the
-     * per-player payout.
+     * durability right now. Records qualification only — payment comes later,
+     * once the day's divisor is settled.
      */
     function clearDaily(uint16[] calldata tokenIds) external nonReentrant {
-        require(!_exhausted(), "Quest pool exhausted");
+        require(_open(), "Quest pool exhausted");
         require(tokenIds.length > 0, "Nothing listed");
         uint256 day = today();
         uint256 counted;
@@ -103,29 +112,38 @@ contract Quests is Ownable, ReentrancyGuard {
         for (uint256 i = 0; i < tokenIds.length; i++) {
             uint16 id = tokenIds[i];
             require(farm.rigOwner(id) == _msgSender(), "Not your rig");
-            require(!dailyClaimed[day][id], "Already cleared today");
+            require(!dailyQualified[day][id], "Already cleared today");
 
             (uint8 durability, , , bool mining) = farm.rigState(id);
             require(mining && durability >= 75, "Rig is not in good order");
 
-            dailyClaimed[day][id] = true;
+            dailyQualified[day][id] = true;
             counted += 1;
         }
 
-        dailyQualified[day] += counted;
-        uint256 reward = (DAILY_BUDGET * counted) / _floor(dailyQualified[day]);
-        _vest(_msgSender(), reward);
-        emit DailyCleared(_msgSender(), day, counted, reward);
+        dailyCount[day][_msgSender()] += counted;
+        dailyTotal[day] += counted;
+        emit DailyQualified(_msgSender(), day, counted);
+    }
+
+    /// @dev settle a day that has closed, pro-rata against its final count
+    function claimDaily(uint256 day) external nonReentrant {
+        require(day < today(), "Day is still running");
+        require(!dailyPaid[day][_msgSender()], "Already paid for that day");
+        uint256 mine = dailyCount[day][_msgSender()];
+        require(mine > 0, "Nothing qualified that day");
+
+        dailyPaid[day][_msgSender()] = true;
+        uint256 reward = (DAILY_BUDGET * mine) / dailyTotal[day];
+        _award(_msgSender(), reward);
+        emit QuestPaid(_msgSender(), day, reward, false);
     }
 
     /* ----------------------------------------------------------- WEEKLY */
 
-    /**
-     * "Seven days without a shutdown": the rig must have been staked for at
-     * least a week and still be running.
-     */
+    /// @dev "seven days without a shutdown": staked a week and still running
     function clearWeekly(uint16[] calldata tokenIds) external nonReentrant {
-        require(!_exhausted(), "Quest pool exhausted");
+        require(_open(), "Quest pool exhausted");
         require(tokenIds.length > 0, "Nothing listed");
         uint256 week = thisWeek();
         uint256 counted;
@@ -133,20 +151,31 @@ contract Quests is Ownable, ReentrancyGuard {
         for (uint256 i = 0; i < tokenIds.length; i++) {
             uint16 id = tokenIds[i];
             require(farm.rigOwner(id) == _msgSender(), "Not your rig");
-            require(!weeklyClaimed[week][id], "Already cleared this week");
+            require(!weeklyQualified[week][id], "Already cleared this week");
             require(farm.stakedDays(id) >= 7, "Needs seven days staked");
 
             (uint8 durability, , , bool mining) = farm.rigState(id);
             require(mining && durability > 0, "Rig is not running");
 
-            weeklyClaimed[week][id] = true;
+            weeklyQualified[week][id] = true;
             counted += 1;
         }
 
-        weeklyQualified[week] += counted;
-        uint256 reward = (WEEKLY_BUDGET * counted) / _floor(weeklyQualified[week]);
-        _vest(_msgSender(), reward);
-        emit WeeklyCleared(_msgSender(), week, counted, reward);
+        weeklyCount[week][_msgSender()] += counted;
+        weeklyTotal[week] += counted;
+        emit WeeklyQualified(_msgSender(), week, counted);
+    }
+
+    function claimWeekly(uint256 week) external nonReentrant {
+        require(week < thisWeek(), "Week is still running");
+        require(!weeklyPaid[week][_msgSender()], "Already paid for that week");
+        uint256 mine = weeklyCount[week][_msgSender()];
+        require(mine > 0, "Nothing qualified that week");
+
+        weeklyPaid[week][_msgSender()] = true;
+        uint256 reward = (WEEKLY_BUDGET * mine) / weeklyTotal[week];
+        _award(_msgSender(), reward);
+        emit QuestPaid(_msgSender(), week, reward, true);
     }
 
     /* ----------------------------------------------------- ACHIEVEMENTS */
@@ -154,39 +183,42 @@ contract Quests is Ownable, ReentrancyGuard {
     /**
      * Tenure milestones on a single token: 30, 60 and 90 days staked.
      *
-     * Paid at a flat rate rather than pro-rata, because a milestone is reached
-     * once per token and cannot be farmed by volume — the gate is time, and
-     * time is the one thing an alt cannot buy.
+     * Flat rather than pro-rata, because a milestone is reached once per token
+     * and cannot be farmed by volume — the gate is time, and time is the one
+     * thing an alt cannot buy. Capped against the achievement budget so the
+     * flat rate can never outrun its allocation.
      */
     function claimMilestone(uint16 tokenId, uint8 milestone) external nonReentrant {
-        require(!_exhausted(), "Quest pool exhausted");
+        require(_open(), "Quest pool exhausted");
         require(milestone < 3, "No such milestone");
         require(farm.rigOwner(tokenId) == _msgSender(), "Not your rig");
         require(!milestoneClaimed[tokenId][milestone], "Already claimed");
         require(farm.stakedDays(tokenId) >= MILESTONES[milestone], "Not tenured yet");
+        require(achievementPaid + MILESTONE_REWARD <= ACHIEVEMENT_BUDGET, "Achievement budget spent");
 
         milestoneClaimed[tokenId][milestone] = true;
-        _vest(_msgSender(), MILESTONE_REWARD);
+        achievementPaid += MILESTONE_REWARD;
+        _award(_msgSender(), MILESTONE_REWARD);
         emit MilestoneCleared(_msgSender(), tokenId, milestone, MILESTONE_REWARD);
     }
 
     /* ---------------------------------------------------------- VESTING */
 
-    function _floor(uint256 v) private pure returns (uint256) {
-        return v == 0 ? 1 : v;
+    function _award(address account, uint256 amount) internal {
+        uint256 room = _remaining();
+        if (amount > room) amount = room;
+        if (amount == 0) return;
+        totalAwarded += amount;
+        _vest(account, amount);
     }
 
     /// @dev carries any unvested remainder forward rather than destroying it
     function _vest(address account, uint256 amount) internal {
-        if (amount == 0) return;
         Vesting storage v = vesting[account];
         uint256 carried;
         if (v.amount > 0) {
             uint256 releasable = _releasable(v);
-            if (releasable > 0) {
-                qbtc.mint(account, releasable);
-                totalPaid += releasable;
-            }
+            if (releasable > 0) qbtc.mint(account, releasable);
             carried = uint256(v.amount) - releasable;
         }
         v.amount = uint128(carried + amount);
@@ -206,10 +238,7 @@ contract Quests is Ownable, ReentrancyGuard {
         uint256 releasable = _releasable(v);
         uint256 forfeit = uint256(v.amount) - releasable;
         v.amount = 0;
-        if (releasable > 0) {
-            qbtc.mint(_msgSender(), releasable);
-            totalPaid += releasable;
-        }
+        if (releasable > 0) qbtc.mint(_msgSender(), releasable);
         emit QuestWithdrawn(_msgSender(), releasable, forfeit);
     }
 

@@ -3,14 +3,20 @@
   "rpc": "https://qrlwallet.com/api/qrl-rpc/testnet",
   "chainId": 1337,
   "deployer": "Q11cbf00fD1F343E909836F108fC74795d09a5D3a",
-  "deployedAt": "2026-08-15T08:01:37.406Z",
+  "deployedAt": "2026-08-15T17:18:17.465Z",
   "baseImageURI": "https://raw.githubusercontent.com/PhuocNG0308/squirrel-game/main/assets/",
   "maxTokens": 50000,
   "paidTokens": 10000,
   "contracts": {
-    "QBTC": "QA7B4Ea49212f98fc5E7EA47B1455d1a84619517a",
-    "Traits": "Q9161d0A9623A1f25A1f5Ba0300e773b4D75948C7",
-    "SquirrelGame": "Qfb47c6091d44465E10A576EeAD73c049C339258b",
-    "MiningFarm": "QD3301738E761A9Bf4FfD1919B995b274515235d4"
+    "QBTC": "Q40B39Fb95039801748ECBdB8245059075a1da0B4",
+    "Traits": "Qf0B27d2291F0af9fFe84d398E47cb9247B8cC3d4",
+    "SquirrelGame": "Q425dC6528d4b5f6A70c89EbFE0B0a988856f5d5F",
+    "TraitStats": "Q7913CC534E4DFC9B7b6D59B26D368dec42726E38",
+    "QuantumFarm": "Qd5f7517EcEaEf5e7B1bA387BEAD54FF35C350908",
+    "RaidPost": "Q56fC9657c788C77076aE6518347D074f072ed96b",
+    "SeasonLedger": "QeF24f73024d8088AE203426defbC5E10748B8215",
+    "Quests": "Q3aFAE0F98404dC3BE1847FfD2Ff245CA98902823",
+    "Fusion": "QbD03E067c9AD99d9E71B9352ddE17b5869e2b73E",
+    "ChunkedDeployer": "Q78E4bD0e0d751515341cc36d8684f9aBda1864E8"
   }
 }

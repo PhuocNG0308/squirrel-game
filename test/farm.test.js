@@ -107,8 +107,14 @@ async function main() {
   section('EMISSION SCHEDULE');
   {
     const { c, farm } = await deployStack();
+    // The reference price is floored at one full rig rather than dividing by a
+    // possibly-zero hashrate. Returning zero here would make coolant, repairs
+    // and firewalls free whenever every staked rig had run itself to 0%.
     const daily0 = decodeUint(await c.call(farm, OWNER, encodeCall('fullRateDailyYield()', [], [])));
-    check('daily yield is zero with nothing staked', daily0 === 0n);
+    // seasonRate truncates when dividing the season budget into seconds, so
+    // the figure lands a few wei under the round number.
+    check('the reference price holds up with nothing staked',
+      near(daily0, 14_000n * ONE, 1) && daily0 > 0n, `${fmt(daily0)} qBTC/day`);
 
     const totalMined = decodeUint(await c.call(farm, OWNER, encodeCall('totalMined()', [], [])));
     check('nothing mined at genesis', totalMined === 0n);

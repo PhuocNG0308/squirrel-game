@@ -22,7 +22,7 @@ async function main() {
   const d = loadDeployment();
 
   const game = new web3.qrl.Contract(abiOf('SquirrelGame'), d.contracts.SquirrelGame);
-  const traits = new web3.qrl.Contract(abiOf('Traits'), d.contracts.Traits);
+  const stats = new web3.qrl.Contract(abiOf('TraitStats'), d.contracts.TraitStats);
 
   const before = Number(await game.methods.minted().call());
   console.log(`minted before: ${before}`);
@@ -60,6 +60,7 @@ async function main() {
 
   for (let id = before + 1; id <= after; id++) {
     const t = await game.methods.tokenTraits(id).call();
+    const sheet = await stats.methods.statsOf(id).call();
     const owner = await game.methods.ownerOf(id).call();
     const uri = await game.methods.tokenURI(id).call();
     const json = JSON.parse(Buffer.from(uri.split(',')[1], 'base64').toString('utf8'));
@@ -67,9 +68,14 @@ async function main() {
     const kind = t.isQuantum ? 'Quantum Computer' : `Squirrel Tier ${3 - Number(t.tierIndex)}`;
     console.log(`#${id}  ${kind}`);
     console.log(`     owner : ${owner}${owner === account.address ? '' : '   <-- STOLEN'}`);
-    console.log(`     name  : ${json.name}`);
-    console.log(`     image : ${json.image}`);
-    console.log(`     attrs : ${json.attributes.map((a) => `${a.trait_type}=${a.value}`).join(', ')}`);
+    console.log(`     image : ${json.image.split('/').pop()}`);
+    const sheetLine = sheet.labels
+      .map((l, i) => `${l} ${Number(sheet.mods[i]) / 100}%`)
+      .join('  ');
+    console.log(`     stats : ${sheetLine}`);
+    console.log(`     traits: ${json.attributes
+      .filter((a) => !sheet.labels.includes(a.trait_type))
+      .map((a) => `${a.trait_type}=${a.value}`).join(', ')}`);
   }
 }
 
