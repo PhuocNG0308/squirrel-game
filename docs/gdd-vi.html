@@ -1,0 +1,942 @@
+<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sổ tay Vận hành Sóc Lượng tử</title>
+<style>
+  /* ---------- tokens: light là nền tảng, cả hai theme định nghĩa ở cấp token ---------- */
+  :root {
+    --ground:      #EDF2F4;
+    --surface:     #FFFFFF;
+    --surface-2:   #F5F9FA;
+    --ink:         #0C1317;
+    --ink-2:       #35474F;
+    --muted:       #6A7E89;
+    --line:        #D2DEE3;
+    --line-soft:   #E3EBEE;
+
+    --cryo:        #0D7F90;
+    --cryo-ink:    #06525E;
+    --cryo-soft:   #D5EDF0;
+
+    --amber:       #B4681A;
+    --amber-soft:  #F6E4CE;
+
+    --crit:        #A93636;
+    --crit-soft:   #F6DCDC;
+
+    --gold:        #8E661C;
+    --gold-soft:   #F3E7CB;
+
+    --violet:      #5C4494;
+    --violet-soft: #E5E0F2;
+
+    --shadow: 0 1px 2px rgba(12,19,23,.06), 0 8px 24px -12px rgba(12,19,23,.18);
+
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", "Segoe UI Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:      #070C0F;
+      --surface:     #0F181D;
+      --surface-2:   #142127;
+      --ink:         #E3EEF2;
+      --ink-2:       #AEC4CD;
+      --muted:       #7C949F;
+      --line:        #213139;
+      --line-soft:   #182630;
+
+      --cryo:        #45C8D8;
+      --cryo-ink:    #8FE2ED;
+      --cryo-soft:   #0C2A31;
+
+      --amber:       #E4964A;
+      --amber-soft:  #33230F;
+
+      --crit:        #E87373;
+      --crit-soft:   #331818;
+
+      --gold:        #D8AC4C;
+      --gold-soft:   #2E2411;
+
+      --violet:      #A794E0;
+      --violet-soft: #1E1935;
+
+      --shadow: 0 1px 2px rgba(0,0,0,.5), 0 10px 28px -14px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:      #070C0F;
+    --surface:     #0F181D;
+    --surface-2:   #142127;
+    --ink:         #E3EEF2;
+    --ink-2:       #AEC4CD;
+    --muted:       #7C949F;
+    --line:        #213139;
+    --line-soft:   #182630;
+
+    --cryo:        #45C8D8;
+    --cryo-ink:    #8FE2ED;
+    --cryo-soft:   #0C2A31;
+
+    --amber:       #E4964A;
+    --amber-soft:  #33230F;
+
+    --crit:        #E87373;
+    --crit-soft:   #331818;
+
+    --gold:        #D8AC4C;
+    --gold-soft:   #2E2411;
+
+    --violet:      #A794E0;
+    --violet-soft: #1E1935;
+
+    --shadow: 0 1px 2px rgba(0,0,0,.5), 0 10px 28px -14px rgba(0,0,0,.7);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.65;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- khung ---------- */
+  .shell {
+    display: grid;
+    grid-template-columns: 244px minmax(0, 1fr);
+    gap: 56px;
+    max-width: 1190px;
+    margin: 0 auto;
+    padding: 0 32px 120px;
+  }
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: minmax(0,1fr); gap: 0; padding: 0 20px 80px; }
+    .rail { display: none; }
+  }
+
+  /* ---------- mục lục ---------- */
+  .rail { padding-top: 56px; }
+  .rail-inner { position: sticky; top: 32px; display: flex; flex-direction: column; gap: 4px; }
+  .rail-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 0 0 12px 12px;
+  }
+  .rail a {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    font-size: 13.5px;
+    color: var(--ink-2);
+    text-decoration: none;
+    padding: 5px 12px;
+    border-left: 2px solid var(--line);
+    transition: color .15s, border-color .15s;
+  }
+  .rail a:hover, .rail a:focus-visible { color: var(--cryo); border-left-color: var(--cryo); }
+  .rail a span {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  main { padding-top: 56px; min-width: 0; }
+
+  /* ---------- đầu trang ---------- */
+  .masthead { padding-bottom: 40px; border-bottom: 1px solid var(--line); margin-bottom: 48px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .2em;
+    text-transform: uppercase;
+    color: var(--cryo);
+    margin: 0 0 18px;
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  }
+  .eyebrow b { color: var(--muted); font-weight: 400; }
+  h1 {
+    font-family: var(--mono);
+    font-size: clamp(28px, 4.8vw, 46px);
+    line-height: 1.08;
+    letter-spacing: -.03em;
+    font-weight: 700;
+    margin: 0 0 20px;
+    text-wrap: balance;
+  }
+  .standfirst {
+    font-size: clamp(16.5px, 2vw, 19px);
+    line-height: 1.6;
+    color: var(--ink-2);
+    max-width: 60ch;
+    margin: 0;
+  }
+  .thesis {
+    margin: 32px 0 0;
+    padding: 20px 24px;
+    background: var(--cryo-soft);
+    border-left: 3px solid var(--cryo);
+    border-radius: 0 6px 6px 0;
+    font-size: 17px;
+    color: var(--cryo-ink);
+  }
+  .thesis strong { font-weight: 700; }
+
+  /* ---------- mục ---------- */
+  section { margin-bottom: 68px; scroll-margin-top: 24px; }
+  .sec-head { display: flex; gap: 14px; align-items: baseline; margin-bottom: 8px; }
+  .sec-num {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--cryo);
+    letter-spacing: .1em;
+    font-variant-numeric: tabular-nums;
+    padding-top: 6px;
+  }
+  h2 {
+    font-family: var(--mono);
+    font-size: clamp(18px, 2.5vw, 24px);
+    letter-spacing: -.018em;
+    font-weight: 700;
+    margin: 0;
+    text-wrap: balance;
+  }
+  h3 {
+    font-family: var(--sans);
+    font-size: 16.5px;
+    font-weight: 650;
+    letter-spacing: -.005em;
+    margin: 34px 0 10px;
+  }
+  p { margin: 0 0 15px; max-width: 66ch; }
+  .lede { color: var(--ink-2); max-width: 66ch; margin-bottom: 24px; }
+  ul, ol { max-width: 66ch; padding-left: 20px; margin: 0 0 15px; }
+  li { margin-bottom: 7px; }
+  strong { font-weight: 650; }
+  em { font-style: italic; }
+  code {
+    font-family: var(--mono);
+    font-size: .875em;
+    background: var(--surface-2);
+    border: 1px solid var(--line-soft);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+  a { color: var(--cryo); }
+
+  /* ---------- bảng ---------- */
+  .tw { overflow-x: auto; margin: 22px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line-soft); white-space: nowrap; }
+  thead th {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--line);
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  .num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  td.wrap { white-space: normal; min-width: 230px; }
+  tfoot td { font-weight: 650; background: var(--surface-2); border-top: 1px solid var(--line); }
+
+  /* dải nhiệt: mã hoá trạng thái vận hành, trục cốt lõi của game */
+  .st { border-left: 3px solid var(--line); }
+  .st-ok   { border-left-color: var(--cryo); }
+  .st-warm { border-left-color: var(--amber); }
+  .st-hot  { border-left-color: var(--crit); }
+  .st-dead { border-left-color: var(--muted); }
+
+  .tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+  .t-ok   { background: var(--cryo-soft);   color: var(--cryo-ink); }
+  .t-warm { background: var(--amber-soft);  color: var(--amber); }
+  .t-hot  { background: var(--crit-soft);   color: var(--crit); }
+  .t-gold { background: var(--gold-soft);   color: var(--gold); }
+  .t-vio  { background: var(--violet-soft); color: var(--violet); }
+  .t-mute { background: var(--surface-2);   color: var(--muted); border: 1px solid var(--line); }
+
+  /* ---------- thanh phân bổ ---------- */
+  .alloc { display: flex; height: 34px; border-radius: 6px; overflow: hidden; margin: 24px 0 14px; border: 1px solid var(--line); }
+  .alloc div { display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 10.5px; color: #fff; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: 13px; color: var(--ink-2); margin-bottom: 8px; }
+  .legend span { display: flex; align-items: center; gap: 7px; }
+  .dot { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+
+  /* ---------- biểu đồ phát hành ---------- */
+  .chart { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; align-items: end; height: 172px; margin: 26px 0 10px; }
+  .bar { display: flex; flex-direction: column; justify-content: flex-end; height: 100%; gap: 2px; }
+  .bar i { display: block; border-radius: 2px 2px 0 0; }
+  .bar .b1 { background: var(--cryo); }
+  .bar .b2 { background: var(--violet); }
+  .bar .b3 { background: var(--gold); }
+  .xaxis { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; font-family: var(--mono); font-size: 10px; color: var(--muted); text-align: center; }
+
+  /* ---------- khối ---------- */
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 22px 24px; margin: 24px 0; box-shadow: var(--shadow); }
+  .formula { font-family: var(--mono); font-size: 13.5px; background: var(--surface-2); border: 1px solid var(--line-soft); border-radius: 6px; padding: 14px 16px; margin: 16px 0; overflow-x: auto; color: var(--ink); line-height: 1.8; }
+
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(272px, 1fr)); gap: 16px; margin: 24px 0; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px; }
+  .card .k { font-family: var(--mono); font-size: 10px; letter-spacing: .13em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+  .card .v { font-family: var(--mono); font-size: 25px; font-weight: 700; letter-spacing: -.02em; margin-bottom: 6px; font-variant-numeric: tabular-nums; }
+  .card p { font-size: 13.5px; color: var(--ink-2); margin: 0; }
+
+  .flag { border-left: 3px solid var(--amber); background: var(--amber-soft); padding: 16px 20px; border-radius: 0 6px 6px 0; margin: 24px 0; }
+  .flag p { margin: 0; color: var(--ink); font-size: 14.5px; max-width: none; }
+  .flag p + p { margin-top: 10px; }
+  .flag .k { font-family: var(--mono); font-size: 10px; letter-spacing: .13em; text-transform: uppercase; color: var(--amber); margin-bottom: 7px; }
+
+  /* ---------- vòng lặp ---------- */
+  .loop { display: grid; grid-template-columns: repeat(auto-fit, minmax(176px, 1fr)); gap: 12px; margin: 26px 0; }
+  .step { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+  .step .n { font-family: var(--mono); font-size: 10px; color: var(--cryo); letter-spacing: .12em; margin-bottom: 8px; }
+  .step h5 { margin: 0 0 6px; font-size: 14.5px; font-weight: 650; }
+  .step p { margin: 0; font-size: 12.5px; color: var(--ink-2); line-height: 1.55; max-width: none; }
+
+  footer { border-top: 1px solid var(--line); padding-top: 26px; color: var(--muted); font-size: 13px; }
+  footer p { max-width: 66ch; }
+
+  :focus-visible { outline: 2px solid var(--cryo); outline-offset: 2px; border-radius: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+</head>
+<body>
+
+<div class="shell">
+  <nav class="rail">
+    <div class="rail-inner">
+      <div class="rail-title">Mục lục</div>
+      <a href="#luan-diem"><span>01</span> Luận điểm thiết kế</a>
+      <a href="#phan-bo"><span>02</span> Tổng cung &amp; phân bổ</a>
+      <a href="#phat-hanh"><span>03</span> Đường cong phát hành</a>
+      <a href="#ba-nhanh"><span>04</span> Ba nhánh phần thưởng</a>
+      <a href="#may-dao"><span>05</span> Vận hành Máy đào</a>
+      <a href="#soc"><span>06</span> Vận hành Sóc</a>
+      <a href="#tap-kich"><span>07</span> Tập kích &amp; phòng thủ</a>
+      <a href="#giu-chan"><span>08</span> Hệ thống giữ chân</a>
+      <a href="#mua-giai"><span>09</span> Mùa giải &amp; xếp hạng</a>
+      <a href="#vesting"><span>10</span> Vesting khi rút</a>
+      <a href="#so-ke"><span>11</span> Sổ kê chống Ponzi</a>
+      <a href="#testnet"><span>12</span> Testnet chứng minh gì</a>
+      <a href="#tham-so"><span>13</span> Bảng tham số</a>
+    </div>
+  </nav>
+
+  <main>
+    <header class="masthead">
+      <p class="eyebrow">Tài liệu Thiết kế Game <b>/</b> Sóc Lượng tử vs Máy đào Lượng tử <b>/</b> QRL Zond testnet v2</p>
+      <h1>Sổ tay Vận hành Sóc Lượng tử</h1>
+      <p class="standfirst">
+        Một nền kinh tế khai thác nơi máy móc hao mòn, chất làm lạnh cạn dần, và
+        lũ sóc trên tán cây được trả công để lấy đi thứ bạn không kịp phòng thủ.
+        Tài liệu này đặc tả lớp vận hành bền vững: phát hành, tiêu hao, tiến trình,
+        và các hệ thống giữ chân đủ để testnet còn người chơi mà học được điều gì đó.
+      </p>
+      <div class="thesis">
+        <strong>Ponzi trả tiền cho việc nạp vốn. Game trả tiền cho việc chơi.</strong>
+        Mọi quyết định thiết kế bên dưới đều là một nỗ lực dịch phần thưởng từ cột
+        thứ nhất sang cột thứ hai.
+      </div>
+    </header>
+
+    <section id="luan-diem">
+      <div class="sec-head"><div class="sec-num">01</div><h2>Luận điểm thiết kế</h2></div>
+      <p class="lede">
+        Nền kinh tế ở bản trước trượt một phép thử rất đơn giản. Toàn bộ bể tiêu hao
+        — sửa chữa, chất làm lạnh, hạt thông — đều tính bằng qBTC, nên đốt chúng chỉ
+        huỷ đi một tờ quyền đòi mà không thêm được chút bảo chứng nào. Cung giảm;
+        không có gì đáng giá hơn.
+      </p>
+      <p>
+        Đốt token là quản trị nguồn cung, không phải tạo ra giá trị. Thứ thật sự làm
+        giảm lệ thuộc vào người vào sau là <strong>thay đổi ai đủ điều kiện kiếm được
+        tiền</strong>. Phát hành tỉ lệ với quy mô vốn nạp thì mặc định trả nhiều nhất cho
+        ví lớn nhất — đó chính là hình dạng Ponzi, bất kể các bể tiêu hao trông đẹp
+        đến đâu. Phát hành bị chặn sau sự chú ý, kỹ năng và thứ hạng thì trả cho
+        người chơi gắn bó nhất, mà người gắn bó là người tháng sau vẫn còn ở đây.
+      </p>
+      <p>
+        Vì vậy cách chia bên dưới chính là tuyên bố kinh tế cốt lõi của tài liệu này:
+        một nửa phát hành vẫn chảy về khai thác, nhưng <strong>không đồng nào chảy về
+        vốn nằm im</strong>, và thêm 40% nữa chỉ chạm tới được bằng cách chơi.
+      </p>
+      <div class="grid2">
+        <div class="card">
+          <div class="k">Theo quy mô vốn</div>
+          <div class="v">50%</div>
+          <p>Lợi tức khai thác — và ngay cả phần này cũng trả 0 nếu không nạp nhiên liệu và bảo trì.</p>
+        </div>
+        <div class="card">
+          <div class="k">Theo hoạt động &amp; thứ hạng</div>
+          <div class="v">40%</div>
+          <p>Bảng xếp hạng mùa và nhiệm vụ. Không thể chạm tới chỉ bằng cách nạp vốn.</p>
+        </div>
+        <div class="card">
+          <div class="k">Không phát cho người chơi</div>
+          <div class="v">10%</div>
+          <p>Thanh khoản AMM và quỹ dự trữ vận hành.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="phan-bo">
+      <div class="sec-head"><div class="sec-num">02</div><h2>Tổng cung &amp; phân bổ</h2></div>
+      <p class="lede">
+        Tổng cung cố định ở <strong>21.000.000 qBTC</strong>. Nó được chia theo mục đích
+        trước khi chia theo thời gian, để không cơ chế đơn lẻ nào rút cạn được cả cap.
+      </p>
+
+      <div class="alloc">
+        <div style="width:50%;background:var(--cryo)">50% KHAI THÁC</div>
+        <div style="width:25%;background:var(--violet)">25% MÙA GIẢI</div>
+        <div style="width:15%;background:var(--gold)">15% NHIỆM VỤ</div>
+        <div style="width:5%;background:var(--muted)">5%</div>
+        <div style="width:5%;background:var(--ink-2)">5%</div>
+      </div>
+      <div class="legend">
+        <span><i class="dot" style="background:var(--cryo)"></i> Lợi tức khai thác</span>
+        <span><i class="dot" style="background:var(--violet)"></i> Quỹ thưởng mùa</span>
+        <span><i class="dot" style="background:var(--gold)"></i> Nhiệm vụ</span>
+        <span><i class="dot" style="background:var(--muted)"></i> Thanh khoản AMM</span>
+        <span><i class="dot" style="background:var(--ink-2)"></i> Dự trữ</span>
+      </div>
+
+      <div class="tw">
+        <table>
+          <thead>
+            <tr><th>Quỹ</th><th class="num">qBTC</th><th class="num">Tỉ trọng</th><th>Mở khoá bằng</th><th class="wrap">Ghi chú</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Lợi tức khai thác</td><td class="num">10.500.000</td><td class="num">50%</td><td><span class="tag t-ok">Bảo trì</span></td><td class="wrap">Chia pro-rata theo hashrate sống; bằng 0 nếu hết chất làm lạnh</td></tr>
+            <tr><td>Quỹ thưởng mùa giải</td><td class="num">5.250.000</td><td class="num">25%</td><td><span class="tag t-vio">Thứ hạng</span></td><td class="wrap">Theo vị trí bảng xếp hạng, không theo quy mô stake</td></tr>
+            <tr><td>Nhiệm vụ &amp; thành tựu</td><td class="num">3.150.000</td><td class="num">15%</td><td><span class="tag t-gold">Hoạt động</span></td><td class="wrap">Hữu hạn: 60 mùa rồi cạn</td></tr>
+            <tr><td>Khởi tạo thanh khoản AMM</td><td class="num">1.050.000</td><td class="num">5%</td><td><span class="tag t-mute">Khoá</span></td><td class="wrap">Ghép với QRL kho bạc khi mở pool</td></tr>
+            <tr><td>Kho bạc / dự trữ vận hành</td><td class="num">1.050.000</td><td class="num">5%</td><td><span class="tag t-mute">Vesting</span></td><td class="wrap">Tuyến tính trong 24 tháng</td></tr>
+          </tbody>
+          <tfoot><tr><td>Tổng</td><td class="num">21.000.000</td><td class="num">100%</td><td></td><td></td></tr></tfoot>
+        </table>
+      </div>
+    </section>
+
+    <section id="phat-hanh">
+      <div class="sec-head"><div class="sec-num">03</div><h2>Đường cong phát hành</h2></div>
+      <p class="lede">
+        Quỹ khai thác và quỹ mùa suy giảm <strong>4% mỗi mùa 30 ngày</strong> — một chuỗi
+        hình học hội tụ về đúng phần được cấp mà không bao giờ rút cạn. Nhiệm vụ trả
+        đều trong 60 mùa rồi dừng hẳn.
+      </p>
+      <p>
+        Lịch halving đã bị loại: epoch đầu tiên của nó <em>buộc phải</em> phát ra một
+        nửa cap, dồn cả nền kinh tế vào đúng đợt xả sớm vốn giết chết những game kiểu
+        này. Suy giảm nhẹ theo mùa trải cùng một tổng lượng ra một vòng đời dùng được.
+      </p>
+
+      <div class="chart" role="img" aria-label="Phát hành hằng năm theo từng quỹ, năm 1 đến năm 8, giảm từ 6,73 triệu xuống 190 nghìn qBTC">
+        <div class="bar"><i class="b3" style="height:15px"></i><i class="b2" style="height:48px"></i><i class="b1" style="height:97px"></i></div>
+        <div class="bar"><i class="b3" style="height:15px"></i><i class="b2" style="height:30px"></i><i class="b1" style="height:59px"></i></div>
+        <div class="bar"><i class="b3" style="height:15px"></i><i class="b2" style="height:18px"></i><i class="b1" style="height:36px"></i></div>
+        <div class="bar"><i class="b3" style="height:15px"></i><i class="b2" style="height:11px"></i><i class="b1" style="height:22px"></i></div>
+        <div class="bar"><i class="b3" style="height:15px"></i><i class="b2" style="height:7px"></i><i class="b1" style="height:14px"></i></div>
+        <div class="bar"><i class="b2" style="height:4px"></i><i class="b1" style="height:9px"></i></div>
+        <div class="bar"><i class="b2" style="height:2px"></i><i class="b1" style="height:5px"></i></div>
+        <div class="bar"><i class="b2" style="height:2px"></i><i class="b1" style="height:3px"></i></div>
+      </div>
+      <div class="xaxis"><div>N1</div><div>N2</div><div>N3</div><div>N4</div><div>N5</div><div>N6</div><div>N7</div><div>N8</div></div>
+
+      <div class="tw">
+        <table>
+          <thead>
+            <tr><th>Năm</th><th class="num">Khai thác</th><th class="num">Mùa giải</th><th class="num">Nhiệm vụ</th><th class="num">Tổng</th><th class="num">Đã phát</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>1</td><td class="num">4.066.548</td><td class="num">2.033.274</td><td class="num">630.000</td><td class="num">6.729.821</td><td class="num">32,0%</td></tr>
+            <tr><td>2</td><td class="num">2.491.613</td><td class="num">1.245.807</td><td class="num">630.000</td><td class="num">4.367.420</td><td class="num">52,8%</td></tr>
+            <tr><td>3</td><td class="num">1.526.636</td><td class="num">763.318</td><td class="num">630.000</td><td class="num">2.919.954</td><td class="num">66,7%</td></tr>
+            <tr><td>4</td><td class="num">935.385</td><td class="num">467.692</td><td class="num">630.000</td><td class="num">2.033.077</td><td class="num">76,4%</td></tr>
+            <tr><td>5</td><td class="num">573.119</td><td class="num">286.560</td><td class="num">630.000</td><td class="num">1.489.679</td><td class="num">83,5%</td></tr>
+            <tr><td>6</td><td class="num">373.378</td><td class="num">186.689</td><td class="num">0</td><td class="num">560.066</td><td class="num">86,2%</td></tr>
+            <tr><td>7</td><td class="num">206.550</td><td class="num">103.275</td><td class="num">0</td><td class="num">309.825</td><td class="num">87,7%</td></tr>
+            <tr><td>8</td><td class="num">126.555</td><td class="num">63.278</td><td class="num">0</td><td class="num">189.833</td><td class="num">88,6%</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Cung lưu hành sau khi trừ tiêu hao</h3>
+      <p>
+        Mint Gen 1 đốt 15.750.000 qBTC trong suốt vòng đời bộ sưu tập — một bể tiêu
+        hao lớn hơn cả quỹ khai thác. Bảo trì đốt 38% lợi tức khai thác; tiến trình
+        nâng cấp đốt thêm 12% tổng phát hành.
+      </p>
+      <div class="tw">
+        <table>
+          <thead>
+            <tr><th>Năm</th><th class="num">Phát hành</th><th class="num">Đốt</th><th class="num">Lưu hành</th><th class="num">Lạm phát ròng</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>1</td><td class="num">6.729.821</td><td class="num">4.708.304</td><td class="num">2.021.517</td><td class="num">—</td></tr>
+            <tr><td>2</td><td class="num">4.367.420</td><td class="num">2.999.500</td><td class="num">3.389.437</td><td class="num">68%</td></tr>
+            <tr><td>3</td><td class="num">2.919.954</td><td class="num">1.952.500</td><td class="num">4.356.891</td><td class="num">29%</td></tr>
+            <tr><td>4</td><td class="num">2.033.077</td><td class="num">1.310.992</td><td class="num">5.078.975</td><td class="num">17%</td></tr>
+            <tr><td>5</td><td class="num">1.489.679</td><td class="num">917.934</td><td class="num">5.650.720</td><td class="num">11%</td></tr>
+            <tr><td>6</td><td class="num">560.066</td><td class="num">405.115</td><td class="num">5.805.671</td><td class="num">3%</td></tr>
+            <tr><td>7</td><td class="num">309.825</td><td class="num">224.107</td><td class="num">5.891.390</td><td class="num">1%</td></tr>
+            <tr><td>8</td><td class="num">189.833</td><td class="num">137.313</td><td class="num">5.943.910</td><td class="num">1%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Cung lưu hành đạt đỉnh quanh <strong>5,94 triệu — 28% của cap</strong>. 72% còn
+        lại hoặc bị đốt dọc đường, hoặc chưa từng được phát ra.
+      </p>
+    </section>
+
+    <section id="ba-nhanh">
+      <div class="sec-head"><div class="sec-num">04</div><h2>Ba nhánh phần thưởng</h2></div>
+      <p class="lede">
+        Mỗi nhánh trả lời một câu hỏi khác nhau, và người chơi bỏ qua hai nhánh sẽ để
+        lại phần lớn nền kinh tế trên bàn.
+      </p>
+      <div class="tw">
+        <table>
+          <thead>
+            <tr><th>Nhánh</th><th>Trả lời câu hỏi</th><th>Tỉ lệ theo</th><th class="wrap">Lợi thế của cá voi</th></tr>
+          </thead>
+          <tbody>
+            <tr class="st st-ok"><td><strong>Khai thác</strong></td><td>Bạn có bảo trì máy không?</td><td>Hashrate sống</td><td class="wrap">Tuyến tính, nhưng hoá đơn bảo trì cũng vậy</td></tr>
+            <tr class="st st-warm"><td><strong>Mùa giải</strong></td><td>Bạn có chơi hay hơn người khác không?</td><td>Thứ hạng</td><td class="wrap">Không — hạng nhất nhận một tỉ lệ cố định</td></tr>
+            <tr class="st st-hot"><td><strong>Nhiệm vụ</strong></td><td>Bạn có thực sự tương tác không?</td><td>Hoàn thành</td><td class="wrap">Không — mỗi tài khoản một lần</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Khai thác được cố ý làm thành nhánh kém thú vị nhất. Nó là tải nền, đòi hỏi
+        chú ý hằng ngày mới kiếm được gì, và là chỗ duy nhất sở hữu nhiều phần cứng
+        thì có lợi.
+      </p>
+    </section>
+
+    <section id="may-dao">
+      <div class="sec-head"><div class="sec-num">05</div><h2>Vận hành Máy đào</h2></div>
+      <p class="lede">
+        Máy đào Lượng tử là một cỗ máy, không phải sổ tiết kiệm. Nó xuống cấp, nó cần
+        chất làm lạnh, và nó sẽ tự huỷ nếu bị vắt kiệt.
+      </p>
+
+      <h3>Độ bền</h3>
+      <p>
+        Mỗi máy bắt đầu ở 100 điểm và mất <strong>5 điểm mỗi ngày đào</strong>. Hashrate
+        rơi theo bậc chứ không mờ dần đều — máy tụt xuống ngưỡng Nóng máy là một sự
+        kiện thấy được, đáng để phản ứng.
+      </p>
+      <div class="tw">
+        <table>
+          <thead>
+            <tr><th>Độ bền</th><th>Trạng thái</th><th class="num">Hashrate</th><th class="wrap">Hệ quả</th></tr>
+          </thead>
+          <tbody>
+            <tr class="st st-ok"><td>75–100</td><td><span class="tag t-ok">Tối ưu</span></td><td class="num">100%</td><td class="wrap">Vận hành đúng thiết kế</td></tr>
+            <tr class="st st-warm"><td>50–74</td><td><span class="tag t-warm">Nóng máy</span></td><td class="num">80%</td><td class="wrap">Chất làm lạnh vẫn tốn như cũ, sản lượng giảm</td></tr>
+            <tr class="st st-warm"><td>20–49</td><td><span class="tag t-warm">Hỏng hóc</span></td><td class="num">50%</td><td class="wrap">Chi phí sửa bắt đầu đáng kể</td></tr>
+            <tr class="st st-hot"><td>1–19</td><td><span class="tag t-hot">Nguy cấp</span></td><td class="num">20%</td><td class="wrap">10% mỗi ngày mất NFT vĩnh viễn; sửa đắt gấp 1,5 lần</td></tr>
+            <tr class="st st-dead"><td>0</td><td><span class="tag t-mute">Dừng hoạt động</span></td><td class="num">0%</td><td class="wrap">Không đào; hồi sinh được nhưng trả giá đầy đủ</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="flag">
+        <div class="k">Yêu cầu công bằng</div>
+        <p>Huỷ một NFT dựa trên kết quả ngẫu nhiên bắt buộc phải dùng commit–reveal.
+        Không có nó, người chơi bọc lời gọi trong một hợp đồng, đọc kết quả, rồi
+        revert mỗi khi máy lẽ ra bị nổ — biến rủi ro 10% thành 0.</p>
+      </div>
+
+      <h3>Sửa chữa</h3>
+      <p>
+        Chi phí sửa được định giá theo lượng máy <em>lẽ ra</em> kiếm được trong một ngày
+        ở độ bền đầy — không bao giờ theo sản lượng thực tế gần đây. Định giá theo sản
+        lượng thực tế sẽ khiến chi phí sửa rơi về gần 0 đúng lúc máy hỏng nặng nhất,
+        nên người chơi có thể thả cho máy chết rồi hồi sinh gần như miễn phí.
+      </p>
+      <div class="formula">chi phí = số điểm × 0,05 × sản lượng ngày ở full-rate × hệ số phạt<br>+ 0,02 × sản lượng ngày ở full-rate<br>hệ số phạt = 1,5 khi độ bền ≤ 19, ngược lại = 1</div>
+      <p>
+        Số hạng cố định phía sau là <strong>phí dịch vụ cho mỗi lần sửa</strong>, và nó tồn
+        tại để tạo ra quyết định bảo trì. Không có nó, chi phí tuyến tính hoàn toàn
+        theo số điểm, nên bơm 5 điểm mỗi ngày và sửa 30 điểm mỗi 6 ngày tốn đúng
+        bằng nhau — chẳng còn gì để cân nhắc.
+      </p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Chiến thuật</th><th>Sửa khi</th><th class="num">Lãi ròng/máy, 360 ngày</th><th class="num">Sống sót</th></tr></thead>
+          <tbody>
+            <tr class="st st-ok"><td>Cân bằng</td><td>74 điểm</td><td class="num">15.893</td><td class="num">100%</td></tr>
+            <tr class="st st-ok"><td>Chăm chỉ</td><td>Mỗi ngày</td><td class="num">15.309</td><td class="num">100%</td></tr>
+            <tr class="st st-hot"><td>Vắt kiệt</td><td>Nguy cấp</td><td class="num">3.523</td><td class="num">21%</td></tr>
+            <tr class="st st-dead"><td>Bỏ mặc</td><td>Không bao giờ</td><td class="num">0</td><td class="num">100%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Cân bằng nhỉnh hơn Chăm chỉ một chút: sửa thưa hơn tiết kiệm phí dịch vụ, vừa
+        đủ bù phần hashrate mất khi Nóng máy. Khoảng chênh đó chính là núm vặn — nới
+        phí dịch vụ thì đẩy người chơi về phía sửa gộp, siết lại thì thưởng cho sự
+        chú ý hằng ngày.
+      </p>
+
+      <h3>Chất làm lạnh</h3>
+      <p>
+        Máy tiêu thụ chất làm lạnh liên tục và dừng ngay khi cửa sổ nhiên liệu hết
+        hạn, bất kể độ bền còn bao nhiêu. Phí bằng <strong>10% sản lượng thực tế tạo
+        ra</strong>, không bao giờ là một lượng token cố định — phí cố định trở nên không
+        trả nổi đúng lúc sản lượng mỗi máy sụt xuống, và đó là cách các nền kinh tế
+        kiểu này rơi vào vòng xoáy tử thần.
+      </p>
+      <p>
+        Cửa sổ nhiên liệu 24 giờ cũng chính là thứ làm hợp đồng khả thi: nó chặn trên
+        khoảng thời gian một máy có thể chưa được quyết toán, nên việc hạch toán
+        hashrate không bao giờ phải quét toàn bộ máy on-chain.
+      </p>
+    </section>
+
+    <section id="soc">
+      <div class="sec-head"><div class="sec-num">06</div><h2>Vận hành Sóc</h2></div>
+      <p class="lede">
+        Sóc là lực lượng an ninh ăn lương, không phải địa chủ ngồi thu tô. Sóc không
+        được cho ăn thì không kiếm được gì.
+      </p>
+
+      <h3>Năng lượng Hạt thông</h3>
+      <p>
+        Mỗi con sóc giữ 100 điểm năng lượng và đốt <strong>10 điểm mỗi ngày</strong> khi
+        đứng gác. Năng lượng được phục hồi bằng cách đốt qBTC mua Hạt thông Năng lượng.
+      </p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Năng lượng</th><th>Trạng thái</th><th class="num">Phần chia thuế</th><th class="wrap">Tập kích</th></tr></thead>
+          <tbody>
+            <tr class="st st-ok"><td>50–100</td><td><span class="tag t-ok">Tỉnh táo</span></td><td class="num">100%</td><td class="wrap">Sẵn sàng</td></tr>
+            <tr class="st st-warm"><td>20–49</td><td><span class="tag t-warm">Kiệt sức</span></td><td class="num">50%</td><td class="wrap">Không khả dụng</td></tr>
+            <tr class="st st-dead"><td>0–19</td><td><span class="tag t-mute">Ngủ gật</span></td><td class="num">0%</td><td class="wrap">Không khả dụng</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Cấp Phòng thủ &amp; sự lỗi thời thuật toán</h3>
+      <p>
+        Tier cố định chỉ số alpha của sóc; <strong>D-Rank</strong> là một chỉ số riêng, có
+        thể thay đổi, và tụt một bậc vào cuối mỗi mùa khi mật mã của máy đào tiến hoá.
+        Giữ hạng đòi hỏi đốt qBTC để cập nhật chữ ký.
+      </p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Tier</th><th>Tạo hình</th><th class="num">Tỉ lệ trong đàn sóc</th><th class="num">Alpha</th></tr></thead>
+          <tbody>
+            <tr class="st st-hot"><td><span class="tag t-gold">Tier 3</span></td><td>Quân vương mạ vàng</td><td class="num">10%</td><td class="num">8</td></tr>
+            <tr class="st st-warm"><td><span class="tag t-vio">Tier 2</span></td><td>Đặc vụ tím</td><td class="num">30%</td><td class="num">7</td></tr>
+            <tr class="st st-ok"><td><span class="tag t-ok">Tier 1</span></td><td>Trinh sát xanh</td><td class="num">60%</td><td class="num">6</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="flag">
+        <div class="k">Ràng buộc triển khai</div>
+        <p>Tụt hạng phải được áp dụng dưới dạng hệ số nhân lúc claim. Cấu trúc stake
+        gom sóc thành các nhóm theo alpha, nên hạ hạng theo đúng nghĩa đen sẽ buộc
+        phải di chuyển từng con sóc đang stake giữa các nhóm — khối lượng công việc
+        không có chặn trên và không thể nhét vừa một giao dịch.</p>
+      </div>
+    </section>
+
+    <section id="tap-kich">
+      <div class="sec-head"><div class="sec-num">07</div><h2>Tập kích &amp; phòng thủ</h2></div>
+      <p class="lede">
+        Thuế thụ động 20% vẫn giữ, nhưng nó là sàn thu nhập của sóc chứ không phải
+        toàn bộ. Tập kích mới là chỗ người chơi sóc thực sự chơi.
+      </p>
+      <p>
+        Một con sóc tiêu 15 năng lượng để tập kích một máy đào cụ thể. Tỉ lệ thành
+        công cân theo alpha đối đầu chỉ số <strong>Tường lửa</strong> của mục tiêu, và tập
+        kích thành công lấy đi một phần lợi tức chưa claim của máy đó. Thất bại chỉ
+        mất năng lượng, không mất gì thêm.
+      </p>
+      <div class="formula">P(thành công) = alpha / (alpha + tường lửa + 4)<br>lượng cướp = min(lợi tức chưa claim × 0,25, trần cướp)</div>
+      <p>
+        Chủ máy đáp trả bằng cách đốt qBTC nâng cấp Tường lửa, vốn tự rơi 1 điểm mỗi
+        mùa. Cuộc trao đổi đó chính là điểm mấu chốt: nó là một bể tiêu hao thường
+        trực được cấp vốn từ cả hai phía, và nó biến thu nhập của sóc từ tiền tô
+        thành thứ phải kiếm.
+      </p>
+      <div class="grid2">
+        <div class="card">
+          <div class="k">Chi phí tập kích</div>
+          <div class="v">15</div>
+          <p>Năng lượng mỗi lần. Khoảng một lần mỗi ngày khi sạc đầy.</p>
+        </div>
+        <div class="card">
+          <div class="k">Trần cướp</div>
+          <div class="v">25%</div>
+          <p>Của lợi tức chưa claim. Claim thường xuyên là một cách phòng thủ thật sự.</p>
+        </div>
+        <div class="card">
+          <div class="k">Tường lửa hao mòn</div>
+          <div class="v">1/mùa</div>
+          <p>Phòng thủ là thứ đi thuê, không bao giờ sở hữu đứt.</p>
+        </div>
+      </div>
+      <div class="flag">
+        <div class="k">Yêu cầu công bằng</div>
+        <p>Kết quả tập kích là ngẫu nhiên nên bắt buộc commit–reveal, theo đúng mẫu
+        hai block như khi mint và khi rút stake.</p>
+      </div>
+    </section>
+
+    <section id="giu-chan">
+      <div class="sec-head"><div class="sec-num">08</div><h2>Hệ thống giữ chân</h2></div>
+      <p class="lede">
+        Một testnet chỉ có giá trị thông tin nếu người ta còn quay lại. Những hệ thống
+        này tồn tại để tuần thứ hai thú vị hơn tuần đầu.
+      </p>
+
+      <h3>Vòng lặp hằng ngày</h3>
+      <div class="loop">
+        <div class="step"><div class="n">BƯỚC 1</div><h5>Đọc bảng điều khiển</h5><p>Độ bền, cửa sổ chất làm lạnh, năng lượng, và những cuộc tập kích nhắm vào bạn đêm qua.</p></div>
+        <div class="step"><div class="n">BƯỚC 2</div><h5>Bảo dưỡng đội máy</h5><p>Nạp nhiên liệu, sửa chữa, cho ăn. Một giao dịch gộp cho toàn bộ danh sách.</p></div>
+        <div class="step"><div class="n">BƯỚC 3</div><h5>Hành động</h5><p>Tập kích một máy, gia cố tường lửa, hoặc cất phần chênh lệch.</p></div>
+        <div class="step"><div class="n">BƯỚC 4</div><h5>Dọn nhiệm vụ</h5><p>Ba nhiệm vụ ngày, làm mới theo đồng hồ mùa giải.</p></div>
+      </div>
+
+      <h3>Chuỗi ngày vận hành</h3>
+      <p>
+        Mỗi ngày liên tiếp kết thúc với toàn bộ máy còn nhiên liệu và trên 75% độ bền
+        cộng thêm <strong>1% hashrate, trần ở 25%</strong>. Lỡ một ngày là reset về 0.
+      </p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Chuỗi</th><th class="num">Thưởng</th><th class="wrap">Ý đồ thiết kế</th></tr></thead>
+          <tbody>
+            <tr class="st st-ok"><td>7 ngày</td><td class="num">+7%</td><td class="wrap">Cảm nhận được ngay trong tuần đầu</td></tr>
+            <tr class="st st-ok"><td>25 ngày</td><td class="num">+25%</td><td class="wrap">Chạm trần trong vòng một mùa</td></tr>
+            <tr class="st st-warm"><td>Lỡ một ngày</td><td class="num">0%</td><td class="wrap">Một bước lùi, không phải lý do bỏ cuộc</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Cái trần quan trọng ngang phần thưởng. Chuỗi không trần sẽ cộng dồn thành đúng
+        lợi thế vĩnh viễn của người chơi sớm mà cơ chế tụt hạng theo mùa sinh ra để
+        ngăn chặn.
+      </p>
+
+      <h3>Nhiệm vụ</h3>
+      <p>
+        Nhiệm vụ là nhánh duy nhất trả tiền ngay cho người chơi hoàn toàn mới, và đó
+        là thứ đưa họ vượt qua tuần đầu tiên tay trắng.
+      </p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Nhịp</th><th class="wrap">Ví dụ</th><th class="num">Tỉ trọng quỹ</th></tr></thead>
+          <tbody>
+            <tr class="st st-ok"><td>Hằng ngày</td><td class="wrap">Nạp nhiên liệu mọi máy · hoàn thành một lần tập kích · kết ngày trên 75%</td><td class="num">45%</td></tr>
+            <tr class="st st-warm"><td>Hằng tuần</td><td class="wrap">Bảy ngày không máy nào dừng · cướp từ ba máy khác nhau</td><td class="num">30%</td></tr>
+            <tr class="st st-hot"><td>Thành tựu</td><td class="wrap">Sóc Tier 3 đầu tiên · hợp nhất một máy Gen 2 · đốt 10.000 qBTC</td><td class="num">25%</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Hợp nhất</h3>
+      <p>
+        Hai máy cùng thế hệ có thể bị đốt để tạo ra một máy thế hệ kế tiếp, mang
+        hashrate nền cao hơn và tốc độ hao mòn chậm hơn. Đây là bể tiêu hao cuối game:
+        nó cho người sở hữu lớn thứ để tiêu, rút NFT khỏi nguồn cung, và tạo giá sàn
+        cho NFT tier thấp bằng cách biến chúng thành nguyên liệu hợp nhất.
+      </p>
+    </section>
+
+    <section id="mua-giai">
+      <div class="sec-head"><div class="sec-num">09</div><h2>Mùa giải &amp; xếp hạng</h2></div>
+      <p class="lede">
+        Mỗi mùa kéo dài 30 ngày, khép lại bằng một đợt tụt hạng, một đợt trả thưởng
+        bảng xếp hạng, và một bộ nhiệm vụ mới — một lý do có lịch để quay lại.
+      </p>
+      <p>
+        Mùa 1 trả <strong>210.000 qBTC</strong> qua ba bảng xếp hạng. Vị trí tính theo dải
+        thứ hạng chứ không theo stake, nên người đứng đầu nhận đúng 10% của một bảng
+        thay vì một bội số của số vốn họ đã nạp.
+      </p>
+      <div class="tw">
+        <table>
+          <thead>
+            <tr><th>Dải thứ hạng</th><th class="num">Thợ đào<br>84.000</th><th class="num">Kẻ cướp<br>73.500</th><th class="num">Vận hành viên<br>52.500</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Hạng 1</td><td class="num">8.400</td><td class="num">7.350</td><td class="num">5.250</td></tr>
+            <tr><td>Hạng 2–3</td><td class="num">10.080</td><td class="num">8.820</td><td class="num">6.300</td></tr>
+            <tr><td>Hạng 4–10</td><td class="num">15.120</td><td class="num">13.230</td><td class="num">9.450</td></tr>
+            <tr><td>Hạng 11–50</td><td class="num">21.000</td><td class="num">18.375</td><td class="num">13.125</td></tr>
+            <tr><td>Hạng 51–200</td><td class="num">16.800</td><td class="num">14.700</td><td class="num">10.500</td></tr>
+            <tr><td>Hạng 201–1000</td><td class="num">12.600</td><td class="num">11.025</td><td class="num">7.875</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Ba bảng được chọn sao cho quy mô sở hữu khác nhau thắng ở những cuộc đua khác
+        nhau. <strong>Vận hành viên</strong> xếp theo phần trăm uptime, mà chỉ số này càng
+        nhiều máy càng <em>khó</em> — người có ba máy giữ 100% uptime dễ hơn nhiều so với
+        cá voi chạy hai trăm máy.
+      </p>
+    </section>
+
+    <section id="vesting">
+      <div class="sec-head"><div class="sec-num">10</div><h2>Vesting khi rút</h2></div>
+      <p class="lede">
+        qBTC đã claim vesting tuyến tính trong bảy ngày. Rút sớm thì mất phần chưa
+        vesting, và phần đó bị đốt.
+      </p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Rút sau</th><th class="num">Nhận được</th><th class="num">Bị đốt</th></tr></thead>
+          <tbody>
+            <tr class="st st-hot"><td>Ngay lập tức</td><td class="num">0%</td><td class="num">100%</td></tr>
+            <tr class="st st-hot"><td>1 ngày</td><td class="num">14%</td><td class="num">86%</td></tr>
+            <tr class="st st-warm"><td>3 ngày</td><td class="num">43%</td><td class="num">57%</td></tr>
+            <tr class="st st-warm"><td>5 ngày</td><td class="num">71%</td><td class="num">29%</td></tr>
+            <tr class="st st-ok"><td>7 ngày</td><td class="num">100%</td><td class="num">0%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Cơ chế này làm tù áp lực xả mà không khoá ai lại, và phần bị mất là một bể
+        tiêu hao tỉ lệ thuận với sự thiếu kiên nhẫn — nó lấy nhiều nhất từ đúng hành
+        vi gây hại cho token.
+      </p>
+    </section>
+
+    <section id="so-ke">
+      <div class="sec-head"><div class="sec-num">11</div><h2>Sổ kê chống Ponzi</h2></div>
+      <p class="lede">
+        Một bảng điểm trung thực. Vài mục đã được thiết kế giải quyết; một mục thì
+        chưa, và giả vờ ngược lại sẽ phá hỏng chính mục đích của việc viết nó ra.
+      </p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Tính chất</th><th>Trạng thái</th><th class="wrap">Cơ chế</th></tr></thead>
+          <tbody>
+            <tr class="st st-ok"><td>Vốn nằm im không sinh lợi</td><td><span class="tag t-ok">Đã giải</span></td><td class="wrap">Cửa sổ chất làm lạnh và độ bền chặn toàn bộ lợi tức khai thác</td></tr>
+            <tr class="st st-ok"><td>Thưởng không thuần theo quy mô stake</td><td><span class="tag t-ok">Đã giải</span></td><td class="wrap">40% tổng cung bị chặn sau thứ hạng và hoạt động</td></tr>
+            <tr class="st st-ok"><td>Người chơi sớm không khoá được ưu thế</td><td><span class="tag t-ok">Đã giải</span></td><td class="wrap">Tụt hạng theo mùa, chuỗi có trần, tường lửa hao mòn</td></tr>
+            <tr class="st st-ok"><td>Phát hành không dồn cục đầu kỳ</td><td><span class="tag t-ok">Đã giải</span></td><td class="wrap">Suy giảm 4%/mùa; năm đầu phát 32%, không phải 75%</td></tr>
+            <tr class="st st-ok"><td>Rút tức thì bị cản trở</td><td><span class="tag t-ok">Đã giải</span></td><td class="wrap">Vesting bảy ngày, phần bỏ lại bị đốt</td></tr>
+            <tr class="st st-warm"><td>Cầu thường trực ngoài đầu cơ</td><td><span class="tag t-warm">Một phần</span></td><td class="wrap">Bảo trì, vá thuật toán và cuộc đua tường lửa là bể tiêu hao vĩnh viễn — nhưng đều nội bộ</td></tr>
+            <tr class="st st-hot"><td>Token có giá sàn độc lập với người mua mới</td><td><span class="tag t-hot">Chưa giải</span></td><td class="wrap">Cần doanh thu ngoại sinh; xem bên dưới</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="flag">
+        <div class="k">Giới hạn trung thực</div>
+        <p>Mọi bể tiêu hao trong tài liệu này đều tính bằng qBTC. Đốt qBTC huỷ đi một
+        tờ quyền đòi; nó không mang một QRL nào vào hệ thống. Các cơ chế ở trên làm
+        nền kinh tế <em>chậm hơn, công bằng hơn và khó farm thụ động hơn</em> — chúng
+        không tạo ra giá sàn cho token.</p>
+        <p>Giá sàn đòi hỏi giá trị đi vào từ bên ngoài. Hai ứng viên là phí bản quyền
+        thị trường thứ cấp trả bằng QRL, và thu phí chất làm lạnh bằng QRL thay vì
+        qBTC — chính xác về mặt chủ đề, vì hoá đơn tiền điện thì trả bằng tiền thật.
+        Dẫn một trong hai vào kho bạc đem stake rồi trao cho qBTC quyền quy đổi
+        pro-rata, thì các lần đốt bắt buộc ở trên bắt đầu <em>nâng giá sàn</em> thay vì chỉ
+        thu hẹp nguồn cung. Đó là quyết định của mainnet, không phải testnet.</p>
+      </div>
+    </section>
+
+    <section id="testnet">
+      <div class="sec-head"><div class="sec-num">12</div><h2>Testnet chứng minh điều gì</h2></div>
+      <p class="lede">
+        Mục đích chạy trên QRL Zond testnet v2 là trả lời những câu hỏi mà không bảng
+        tính nào trả lời được.
+      </p>
+      <ul>
+        <li><strong>Vòng lặp hằng ngày có sống sót khi va vào người chơi thật không?</strong>
+        Chiến thuật mô phỏng luôn bảo trì máy đúng hạn. Người thật thì quên, đi nghỉ,
+        và bỏ game sau một lần nổ máy.</li>
+        <li><strong>Gánh nặng bảo trì là thú vị hay là việc vặt?</strong> Nếu bảo dưỡng gộp
+        đã chán ở mười máy thì năm mươi máy là không chơi nổi — và câu trả lời sẽ đổi
+        toàn bộ nhịp bảo trì.</li>
+        <li><strong>Ba bảng xếp hạng có thu hút ba nhóm người chơi khác nhau không?</strong>
+        Nếu cùng những ví đó đứng đầu cả ba, thì 40% "theo thứ hạng" thực chất vẫn là
+        theo quy mô stake, chỉ trá hình.</li>
+        <li><strong>Rủi ro nổ máy là hồi hộp hay chỉ là trừng phạt?</strong> Xác suất mất 10%
+        mỗi ngày đọc rất khác khi đó là NFT của chính bạn.</li>
+        <li><strong>Một ngày chơi tốn bao nhiêu gas?</strong> Mỗi cơ chế ở đây đều thêm giao
+        dịch, và commit–reveal nhân đôi những giao dịch có rủi ro.</li>
+      </ul>
+      <p>
+        Thanh khoản được cố ý để ngoài phạm vi testnet. Pool AMM, cặp QRL của nó, và
+        quyền quy đổi đều phụ thuộc vào những câu trả lời mà giai đoạn này sinh ra.
+      </p>
+    </section>
+
+    <section id="tham-so">
+      <div class="sec-head"><div class="sec-num">13</div><h2>Bảng tham số</h2></div>
+      <p class="lede">Toàn bộ giá trị có thể tinh chỉnh, gom về một chỗ, theo đặc tả cho testnet.</p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Tham số</th><th class="num">Giá trị</th><th class="wrap">Ghi chú</th></tr></thead>
+          <tbody>
+            <tr><td>Tổng cung</td><td class="num">21.000.000</td><td class="wrap">Cap cứng, không bao giờ vượt</td></tr>
+            <tr><td>Độ dài mùa giải</td><td class="num">30 ngày</td><td class="wrap">Mốc tụt hạng và trả thưởng bảng</td></tr>
+            <tr><td>Suy giảm quỹ</td><td class="num">4% / mùa</td><td class="wrap">Quỹ khai thác và quỹ mùa</td></tr>
+            <tr><td>Vòng đời nhiệm vụ</td><td class="num">60 mùa</td><td class="wrap">Trả đều rồi cạn</td></tr>
+            <tr><td>Tổng NFT</td><td class="num">50.000</td><td class="wrap">10.000 Gen 0 + 40.000 Gen 1</td></tr>
+            <tr><td>Giá mint Gen 0</td><td class="num">0,069420 QRL</td><td class="wrap">Bất biến trong hợp đồng đã deploy</td></tr>
+            <tr><td>Thang giá Gen 1</td><td class="num">175 / 350 / 700</td><td class="wrap">qBTC, đốt khi mint</td></tr>
+            <tr><td>Tỉ lệ ra Sóc</td><td class="num">10%</td><td class="wrap">Tier 1 / 2 / 3 theo 60 / 30 / 10</td></tr>
+            <tr><td>Hao độ bền</td><td class="num">5 / ngày</td><td class="wrap">Chỉ khi đang đào</td></tr>
+            <tr><td>Sửa mỗi điểm</td><td class="num">0,05</td><td class="wrap">Của sản lượng ngày ở full-rate</td></tr>
+            <tr><td>Phí dịch vụ sửa</td><td class="num">0,02</td><td class="wrap">Cố định, mỗi lần sửa</td></tr>
+            <tr><td>Phạt Nguy cấp</td><td class="num">1,5×</td><td class="wrap">Áp dụng khi độ bền dưới 20</td></tr>
+            <tr><td>Rủi ro nổ máy</td><td class="num">10% / ngày</td><td class="wrap">Khi Nguy cấp; dùng commit–reveal</td></tr>
+            <tr><td>Phí chất làm lạnh</td><td class="num">10%</td><td class="wrap">Của sản lượng tạo ra</td></tr>
+            <tr><td>Thuế Sóc</td><td class="num">20%</td><td class="wrap">Của lợi tức khi claim</td></tr>
+            <tr><td>Hao năng lượng</td><td class="num">10 / ngày</td><td class="wrap">Khi đang gác</td></tr>
+            <tr><td>Chi phí tập kích</td><td class="num">15 năng lượng</td><td class="wrap">Mỗi lần thử</td></tr>
+            <tr><td>Trần cướp</td><td class="num">25%</td><td class="wrap">Của lợi tức chưa claim</td></tr>
+            <tr><td>Thưởng chuỗi ngày</td><td class="num">+1% / ngày</td><td class="wrap">Trần ở +25%</td></tr>
+            <tr><td>Vesting khi claim</td><td class="num">7 ngày</td><td class="wrap">Tuyến tính; phần bỏ lại bị đốt</td></tr>
+            <tr><td>Thời gian stake tối thiểu</td><td class="num">2 ngày</td><td class="wrap">Trước khi được rút máy ra</td></tr>
+            <tr><td>Rủi ro mất lợi tức khi rút</td><td class="num">50%</td><td class="wrap">Dùng commit–reveal</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer>
+      <p>
+        Các con số được sinh ra bởi <code>scripts/gdd-model.js</code>,
+        <code>scripts/simulate.js</code> và <code>scripts/inflation.js</code> trong repo dự án,
+        và được tính lại sau mỗi lần chạy. Hợp đồng viết bằng Hyperion, nhắm tới
+        QRL Zond testnet v2.
+      </p>
+    </footer>
+  </main>
+</div>
+
+</body>
+</html>
