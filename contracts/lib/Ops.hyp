@@ -1,0 +1,178 @@
+// SPDX-License-Identifier: MIT
+pragma hyperion >=0.0.1;
+
+/**
+ * Operations maths: emission schedule, durability decay, and fee pricing.
+ *
+ * Pure functions only — no storage, no chain reads — so every value here is
+ * reproducible off chain by scripts/simulate.js.
+ */
+library Ops {
+    uint256 internal constant PRECISION = 1e18;
+
+    /* ------------------------------------------------------- EMISSION */
+
+    uint256 internal constant EMISSION_CAP = 21_000_000 ether;
+    uint256 internal constant EPOCH_LENGTH = 180 days;
+    /// @dev epoch-0 budget for the whole network per day
+    uint256 internal constant INITIAL_DAILY_BUDGET = 58_333_333333333333333333;
+    /// @dev beyond this the budget rounds to nothing; stops the shift growing
+    uint256 internal constant MAX_EPOCH = 64;
+
+    /**
+     * Network-wide emission budget per day, halving each epoch.
+     *
+     * The series sum(budget * EPOCH_LENGTH / 2^i) converges on EMISSION_CAP
+     * without reaching it, so mining never hard-stops. A flat per-rig rate
+     * cannot do this under a hard cap: 45,000 rigs at 87.5/day would exhaust
+     * 21,000,000 in 5.3 days.
+     */
+    function dailyBudget(uint256 elapsedSinceGenesis) internal pure returns (uint256) {
+        uint256 epoch = elapsedSinceGenesis / EPOCH_LENGTH;
+        if (epoch >= MAX_EPOCH) return 0;
+        return INITIAL_DAILY_BUDGET >> epoch;
+    }
+
+    /**
+     * Emission accrued over [from, to), integrating across epoch boundaries so
+     * a long gap between settlements cannot be paid at a stale higher rate.
+     */
+    function emissionBetween(uint256 from, uint256 to) internal pure returns (uint256 total) {
+        if (to <= from) return 0;
+        uint256 cursor = from;
+        // at most a handful of iterations: epochs are 180 days long
+        for (uint256 i = 0; i < MAX_EPOCH && cursor < to; i++) {
+            uint256 epochEnd = ((cursor / EPOCH_LENGTH) + 1) * EPOCH_LENGTH;
+            uint256 segmentEnd = epochEnd < to ? epochEnd : to;
+            total += ((segmentEnd - cursor) * dailyBudget(cursor)) / 1 days;
+            cursor = segmentEnd;
+        }
+    }
+
+    /* ----------------------------------------------------- DURABILITY */
+
+    uint8 internal constant DURABILITY_MAX = 100;
+    uint256 internal constant DECAY_PER_DAY = 5;
+    uint8 internal constant CRITICAL_MAX = 19;
+
+    /// @dev hashrate as a fraction of PRECISION, by remaining durability
+    function hashrateMultiplier(uint256 durability) internal pure returns (uint256) {
+        if (durability == 0) return 0;
+        if (durability >= 75) return PRECISION;
+        if (durability >= 50) return (PRECISION * 80) / 100;
+        if (durability >= 20) return (PRECISION * 50) / 100;
+        return (PRECISION * 20) / 100;
+    }
+
+    /// @dev durability remaining after `elapsed` seconds of mining
+    function decayed(uint256 durability, uint256 elapsed) internal pure returns (uint8) {
+        uint256 lost = (elapsed * DECAY_PER_DAY) / 1 days;
+        if (lost >= durability) return 0;
+        return uint8(durability - lost);
+    }
+
+    /**
+     * Time-weighted average hashrate across a mining window.
+     *
+     * Durability falls monotonically, so the window crosses at most four band
+     * boundaries (75 / 50 / 20 / 0). Integrating over those segments is bounded
+     * and cheap, and it avoids both of the naive alternatives: charging the
+     * whole window at the starting durability overpays, and charging it at the
+     * ending durability underpays badly after a long gap.
+     */
+    function averageHashrate(uint256 startDurability, uint256 elapsed)
+        internal
+        pure
+        returns (uint256)
+    {
+        if (elapsed == 0 || startDurability == 0) return 0;
+
+        uint256 weighted;
+        uint256 cursor;          // seconds consumed
+        uint256 d = startDurability;
+
+        // band floors, descending
+        uint8[4] memory floors = [75, 50, 20, 1];
+
+        for (uint256 i = 0; i < 4 && cursor < elapsed && d > 0; i++) {
+            uint256 floorD = floors[i];
+            if (d < floorD) continue;
+
+            // seconds until durability drops below this band
+            uint256 dropTo = floorD > 0 ? floorD - 1 : 0;
+            uint256 points = d - dropTo;
+            uint256 segment = (points * 1 days) / DECAY_PER_DAY;
+
+            uint256 remaining = elapsed - cursor;
+            if (segment > remaining) segment = remaining;
+
+            weighted += segment * hashrateMultiplier(d);
+            cursor += segment;
+            d = decayed(startDurability, cursor);
+        }
+
+        return weighted / elapsed;
+    }
+
+    /* ------------------------------------------------------- PRICING */
+
+    /// @dev fee percentages, all taken as a share of full-rate yield
+    uint256 internal constant CRYO_PCT = 10;
+    uint256 internal constant TAX_PCT = 20;
+    /// @dev cost per durability point, in basis points of full-rate daily yield
+    uint256 internal constant REPAIR_PER_POINT_BPS = 500; // 0.05
+    /// @dev flat charge per repair action, in basis points
+    uint256 internal constant REPAIR_SERVICE_BPS = 200;   // 0.02
+    uint256 internal constant CRITICAL_PENALTY_NUM = 3;
+    uint256 internal constant CRITICAL_PENALTY_DEN = 2;   // 1.5x
+
+    /**
+     * Cost to restore `durability` to full.
+     *
+     * Priced against `fullRateDailyYield` — what the rig would earn in a day at
+     * 100% durability — rather than against its actual recent output. Pricing
+     * off actual output would make repair cost fall to zero exactly when a rig
+     * is most broken, so a player could let a rig die and revive it for free.
+     */
+    function repairCost(uint256 durability, uint256 fullRateDailyYield)
+        internal
+        pure
+        returns (uint256)
+    {
+        if (durability >= DURABILITY_MAX) return 0;
+        uint256 points = DURABILITY_MAX - durability;
+        uint256 cost = (points * REPAIR_PER_POINT_BPS * fullRateDailyYield) / 10000;
+        if (durability <= CRITICAL_MAX) {
+            cost = (cost * CRITICAL_PENALTY_NUM) / CRITICAL_PENALTY_DEN;
+        }
+        // Flat per-action charge. Without it repair cost is linear in points,
+        // so topping up daily and repairing in bulk cost exactly the same and
+        // the player has no maintenance decision to make.
+        return cost + (REPAIR_SERVICE_BPS * fullRateDailyYield) / 10000;
+    }
+
+    /* --------------------------------------------------- DREY ENERGY */
+
+    uint8 internal constant ENERGY_MAX = 100;
+    uint256 internal constant ENERGY_DECAY_PER_DAY = 10;
+    /// @dev cost per energy point, in basis points of the guard's tax income
+    uint256 internal constant ACORN_PER_POINT_BPS = 20;
+
+    function energyAfter(uint256 energy, uint256 elapsed) internal pure returns (uint8) {
+        uint256 lost = (elapsed * ENERGY_DECAY_PER_DAY) / 1 days;
+        if (lost >= energy) return 0;
+        return uint8(energy - lost);
+    }
+
+    /// @dev share of the tax pool a guard may draw, as a fraction of PRECISION
+    function taxShareMultiplier(uint256 energy) internal pure returns (uint256) {
+        if (energy >= 50) return PRECISION;
+        if (energy >= 20) return PRECISION / 2;
+        return 0;
+    }
+
+    function acornCost(uint256 energy, uint256 referenceIncome) internal pure returns (uint256) {
+        if (energy >= ENERGY_MAX) return 0;
+        return ((ENERGY_MAX - energy) * ACORN_PER_POINT_BPS * referenceIncome) / 10000;
+    }
+}

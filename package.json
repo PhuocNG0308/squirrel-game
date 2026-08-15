@@ -13,7 +13,8 @@
     "test": "node test/game.test.js",
     "check": "npm run build && npm run economics && npm test",
     "mint": "node scripts/live-mint.js",
-    "simulate": "node scripts/simulate.js"
+    "simulate": "node scripts/simulate.js",
+    "inflation": "node scripts/inflation.js"
   },
   "author": "",
   "license": "MIT",
