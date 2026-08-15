@@ -24,6 +24,27 @@ interface ITraitStats {
         uint16 taxBps;      // share of the Drey tax pool
     }
 
+    /**
+     * Species-agnostic view of a token's sheet.
+     *
+     * Both species carry four modifiers; only their meaning differs, which is
+     * what `labels` reports. A single shape means a wallet or marketplace can
+     * render any token without branching on species.
+     *
+     * `tier` is 0 for a rig and 1-3 for a squirrel, `generation` counts
+     * fusions, and `alpha` is the squirrel's raid and tax weight.
+     */
+    struct TokenStats {
+        bool isQuantum;
+        uint8 tier;
+        uint8 generation;
+        uint8 alpha;
+        uint16[4] mods;
+        string[4] labels;
+    }
+
+    function statsOf(uint256 tokenId) external view returns (TokenStats memory);
+
     function rigMods(uint256 tokenId) external view returns (RigMods memory);
 
     function squirrelMods(uint256 tokenId) external view returns (SquirrelMods memory);

@@ -444,10 +444,14 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
         Guard storage g = drey[alpha][dreyIndices[id]];
         require(g.owner == owner, "Not your squirrel");
 
-        uint256 elapsed = block.timestamp - g.lastSettled;
+        ITraitStats.SquirrelMods memory mods = _squirrelMods(id);
+
+        // better gear stretches a charge further, so energy drains slower
+        uint256 elapsed = ((block.timestamp - g.lastSettled) * mods.energyBps) / 10000;
         g.energy = Ops.energyAfter(g.energy, elapsed);
 
-        // energy gates the share; an unpatched rank erodes it further
+        // energy gates the share, an unpatched rank erodes it, and headgear
+        // widens whatever survives both
         uint256 share = Ops.taxShareMultiplier(g.energy);
         uint256 season = seasonNow();
         uint256 rank = Ops.rankMultiplier(
@@ -455,6 +459,7 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
         );
         uint256 owed = alpha * (qbtcPerAlpha - g.taxDebt);
         net = (((owed * share) / Ops.PRECISION) * rank) / Ops.PRECISION;
+        net = (net * mods.taxBps) / 10000;
 
         // the portion an exhausted squirrel forfeits stays with the Drey
         if (owed > net) _payDrey(owed - net);
@@ -546,6 +551,17 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
     function _rigMods(uint256 tokenId) internal view returns (ITraitStats.RigMods memory m) {
         if (address(stats) == address(0)) return ITraitStats.RigMods(10000, 10000, 10000, 10000);
         return stats.rigMods(tokenId);
+    }
+
+    function _squirrelMods(uint256 tokenId)
+        internal
+        view
+        returns (ITraitStats.SquirrelMods memory m)
+    {
+        if (address(stats) == address(0)) {
+            return ITraitStats.SquirrelMods(10000, 10000, 10000, 10000);
+        }
+        return stats.squirrelMods(tokenId);
     }
 
     function guardOwner(uint16 tokenId) external view returns (address, uint8) {

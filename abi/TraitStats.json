@@ -212,6 +212,57 @@
   {
     "inputs": [
       {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "statsOf",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "bool",
+            "name": "isQuantum",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint8",
+            "name": "tier",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "generation",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "alpha",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint16[4]",
+            "name": "mods",
+            "type": "uint16[4]"
+          },
+          {
+            "internalType": "string[4]",
+            "name": "labels",
+            "type": "string[4]"
+          }
+        ],
+        "internalType": "struct ITraitStats.TokenStats",
+        "name": "s",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint8",
         "name": "slot",
         "type": "uint8"

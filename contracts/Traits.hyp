@@ -7,6 +7,7 @@ import "./lib/openzeppelin/utils/Base64.hyp";
 
 import "./interfaces/ITraits.hyp";
 import "./interfaces/ISquirrelGame.hyp";
+import "./interfaces/ITraitStats.hyp";
 
 /**
  * Traits — on-chain metadata.
@@ -29,6 +30,8 @@ contract Traits is Ownable, ITraits {
     }
 
     ISquirrelGame public game;
+    /// @dev optional; when unset the metadata simply omits the stat line
+    ITraitStats public stats;
 
     /// @dev base URL for artwork, e.g. https://raw.githubusercontent.com/<user>/<repo>/main/assets/
     string public baseImageURI;
@@ -56,6 +59,10 @@ contract Traits is Ownable, ITraits {
 
     function setGame(address _game) external onlyOwner {
         game = ISquirrelGame(_game);
+    }
+
+    function setStats(address _stats) external onlyOwner {
+        stats = ITraitStats(_stats);
     }
 
     function setBaseImageURI(string calldata _uri) external onlyOwner {
@@ -121,6 +128,32 @@ contract Traits is Ownable, ITraits {
         return string(abi.encodePacked('{"trait_type":"', traitType, '","value":"', value, '"}'));
     }
 
+    /**
+     * The token's mechanical stat line, rendered as marketplace attributes.
+     *
+     * Emitted as percentages against a 100 baseline so a wallet shows "112"
+     * rather than "11200" — the contracts work in basis points, but nobody
+     * reading a listing thinks that way. Generation is included for every
+     * token so a forged rig is identifiable at a glance.
+     */
+    function statAttributes(uint256 tokenId) public view returns (string memory) {
+        if (address(stats) == address(0)) return "";
+        ITraitStats.TokenStats memory s = stats.statsOf(tokenId);
+
+        string memory out = string(abi.encodePacked(
+            '{"trait_type":"Generation","value":', uint256(s.generation).toString(), '},'
+        ));
+        for (uint256 i = 0; i < 4; i++) {
+            out = string(abi.encodePacked(
+                out,
+                '{"trait_type":"', s.labels[i],
+                '","value":', uint256(s.mods[i] / 100).toString(),
+                ',"max_value":130},'
+            ));
+        }
+        return out;
+    }
+
     function compileAttributes(uint256 tokenId) public view returns (string memory) {
         ISquirrelGame.QuantumSquirrel memory s = game.getTokenTraits(tokenId);
         uint8 shift = s.isQuantum ? 0 : 9;
@@ -150,12 +183,16 @@ contract Traits is Ownable, ITraits {
             ));
         }
 
+        traits = string(abi.encodePacked(traits, statAttributes(tokenId)));
+
         return string(abi.encodePacked(
             "[",
             traits,
             '{"trait_type":"Type","value":"',
             s.isQuantum ? "Quantum Computer" : "Squirrel",
-            '"},{"trait_type":"Generation","value":"',
+            // "Series" is the mint batch; "Generation" above counts fusions.
+            // Two attributes sharing one name would collide in any wallet.
+            '"},{"trait_type":"Series","value":"',
             tokenId <= game.getPaidTokens() ? "Gen 0" : "Gen 1",
             '"}]'
         ));

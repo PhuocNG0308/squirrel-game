@@ -95,6 +95,32 @@ contract TraitStats is Ownable, ITraitStats {
         m.repairBps = _pick3(MOUNT_REPAIR, t.feet);
     }
 
+    /**
+     * Every token, rig or squirrel, reports a sheet in the same shape.
+     *
+     * Rigs and squirrels each carry four modifiers, so nothing here is ever
+     * blank: a mint always produces a token with a full stat line, and a
+     * squirrel simply carries a tier and an alpha on top.
+     */
+    function statsOf(uint256 tokenId) external view override returns (TokenStats memory s) {
+        ISquirrelGame.QuantumSquirrel memory t = game.getTokenTraits(tokenId);
+        s.isQuantum = t.isQuantum;
+        s.generation = game.generationOf(tokenId);
+
+        if (t.isQuantum) {
+            RigMods memory m = this.rigMods(tokenId);
+            s.mods = [m.hashrateBps, m.decayBps, m.coolantBps, m.repairBps];
+            s.labels = ["Hashrate", "Wear Rate", "Coolant Draw", "Repair Cost"];
+        } else {
+            // index 0 is Tier 3, so the displayed tier counts back down
+            s.tier = 3 - t.tierIndex;
+            s.alpha = 8 - t.tierIndex;
+            SquirrelMods memory m = this.squirrelMods(tokenId);
+            s.mods = [m.raidOddsBps, m.stealBps, m.energyBps, m.taxBps];
+            s.labels = ["Raid Accuracy", "Plunder Share", "Energy Draw", "Tax Share"];
+        }
+    }
+
     function squirrelMods(uint256 tokenId)
         external
         view
