@@ -12,7 +12,8 @@
     "verify": "node scripts/verify.js",
     "test": "node test/game.test.js",
     "check": "npm run build && npm run economics && npm test",
-    "mint": "node scripts/live-mint.js"
+    "mint": "node scripts/live-mint.js",
+    "simulate": "node scripts/simulate.js"
   },
   "author": "",
   "license": "MIT",
