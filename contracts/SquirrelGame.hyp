@@ -62,6 +62,17 @@ contract SquirrelGame is ISquirrelGame, ERC721Enumerable, Ownable, Pausable, Ree
     /// @dev monotonic, feeds the commit salt so two commits never share one
     uint256 public commitNonce;
 
+    /**
+     * Fusion generation. Minted tokens are generation 0; the forge burns two
+     * of the same generation to mint one of the next.
+     *
+     * Forged tokens are numbered above MAX_TOKENS so they can never collide
+     * with a mint, and the mint supply cap stays exactly what it says it is.
+     */
+    mapping(uint256 => uint8) public generation;
+    uint16 public forged;
+    address public fusionForge;
+
     /// @dev Walker alias tables; slots 0-8 are Quantum Computer, 9-17 Squirrel
     uint8[][18] public rarities;
     uint8[][18] public aliases;
@@ -337,6 +348,50 @@ contract SquirrelGame is ISquirrelGame, ERC721Enumerable, Ownable, Pausable, Ree
 
     function getTokenTraits(uint256 tokenId) external view override returns (QuantumSquirrel memory) {
         return tokenTraits[tokenId];
+    }
+
+    function generationOf(uint256 tokenId) external view override returns (uint8) {
+        return generation[tokenId];
+    }
+
+    /* ------------------------------------------------------------- FORGE */
+
+    /**
+     * Burns a token on behalf of the forge.
+     *
+     * Restricted to one authorised contract: burning is irreversible and the
+     * collection's supply guarantees depend on nothing else being able to do
+     * it. The forge checks ownership before calling.
+     */
+    function forgeBurn(uint256 tokenId) external {
+        require(_msgSender() == fusionForge, "Only the forge");
+        delete existingCombinations[structToHash(tokenTraits[tokenId])];
+        delete tokenTraits[tokenId];
+        delete generation[tokenId];
+        _burn(tokenId);
+    }
+
+    /**
+     * Mints a fused token with traits chosen by the forge.
+     *
+     * Numbered above MAX_TOKENS, so fusion never competes with minting for
+     * supply and `minted` stays a true count of Gen 0 and Gen 1 sales.
+     */
+    function forgeMint(address to, QuantumSquirrel calldata t, uint8 gen)
+        external
+        returns (uint256 tokenId)
+    {
+        require(_msgSender() == fusionForge, "Only the forge");
+        forged += 1;
+        tokenId = MAX_TOKENS + forged;
+        tokenTraits[tokenId] = t;
+        generation[tokenId] = gen;
+        existingCombinations[structToHash(t)] = tokenId;
+        _safeMint(to, tokenId);
+    }
+
+    function setFusionForge(address _forge) external onlyOwner {
+        fusionForge = _forge;
     }
 
     function getPaidTokens() external view override returns (uint256) {

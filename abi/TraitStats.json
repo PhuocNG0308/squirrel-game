@@ -1,0 +1,249 @@
+[
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_game",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "previousOwner",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "OwnershipTransferred",
+    "type": "event"
+  },
+  {
+    "inputs": [],
+    "name": "GEN_DECAY_RELIEF_BPS",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "GEN_HASHRATE_BONUS_BPS",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "MAX_GEN_SCALING",
+    "outputs": [
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "NEUTRAL",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "game",
+    "outputs": [
+      {
+        "internalType": "contract ISquirrelGame",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "owner",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "renounceOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "rigMods",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint16",
+            "name": "hashrateBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "decayBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "coolantBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "repairBps",
+            "type": "uint16"
+          }
+        ],
+        "internalType": "struct ITraitStats.RigMods",
+        "name": "m",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_game",
+        "type": "address"
+      }
+    ],
+    "name": "setGame",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "squirrelMods",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint16",
+            "name": "raidOddsBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "stealBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "energyBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "taxBps",
+            "type": "uint16"
+          }
+        ],
+        "internalType": "struct ITraitStats.SquirrelMods",
+        "name": "m",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint8",
+        "name": "slot",
+        "type": "uint8"
+      },
+      {
+        "internalType": "uint8",
+        "name": "index",
+        "type": "uint8"
+      }
+    ],
+    "name": "traitWeight",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "pure",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "newOwner",
+        "type": "address"
+      }
+    ],
+    "name": "transferOwnership",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  }
+]

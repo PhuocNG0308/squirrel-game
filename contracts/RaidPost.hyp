@@ -8,6 +8,7 @@ import "./lib/CommitReveal.hyp";
 import "./lib/Ops.hyp";
 
 import "./interfaces/IQuantumFarm.hyp";
+import "./interfaces/ITraitStats.hyp";
 import "./QBTC.hyp";
 
 /**
@@ -46,6 +47,9 @@ contract RaidPost is Ownable, Pausable, ReentrancyGuard {
     /// @dev season => squirrel => qBTC stolen; the Raiders ladder
     mapping(uint256 => mapping(uint256 => uint256)) public raiderSeasonScore;
     mapping(uint256 => uint256) public seasonRaidTotal;
+
+    /// @dev optics sharpen the odds, paws widen the take
+    ITraitStats public stats;
 
     uint256 public totalBurned;
 
@@ -152,12 +156,18 @@ contract RaidPost is Ownable, Pausable, ReentrancyGuard {
         delete raids[raider];
 
         uint256 alpha = farm.alphaOf(c.squirrelId);
-        uint256 odds = Ops.raidOdds(alpha, firewallOf(c.targetId));
+        (uint256 oddsBps, uint256 stealBps) = _squirrelMods(c.squirrelId);
+
+        // optics sharpen the odds; the ceiling keeps defence meaningful
+        uint256 odds = (Ops.raidOdds(alpha, firewallOf(c.targetId)) * oddsBps) / 10000;
+        if (odds > (Ops.PRECISION * 90) / 100) odds = (Ops.PRECISION * 90) / 100;
         bool success = (seed % Ops.PRECISION) < odds;
 
         uint256 stolen;
         if (success && farm.rigOwner(c.targetId) != address(0)) {
-            stolen = farm.raidDrain(c.targetId, Ops.RAID_STEAL_BPS, raider);
+            uint256 take = (Ops.RAID_STEAL_BPS * stealBps) / 10000;
+            if (take > 5000) take = 5000; // never more than half in one raid
+            stolen = farm.raidDrain(c.targetId, take, raider);
             uint256 season = farm.seasonNow();
             raiderSeasonScore[season][c.squirrelId] += stolen;
             seasonRaidTotal[season] += stolen;
@@ -188,10 +198,21 @@ contract RaidPost is Ownable, Pausable, ReentrancyGuard {
             && !CommitReveal.isExpired(c.revealBlock);
     }
 
+    /// @dev neutral when no stats table is wired, so raids still work
+    function _squirrelMods(uint16 tokenId) internal view returns (uint256, uint256) {
+        if (address(stats) == address(0)) return (10000, 10000);
+        ITraitStats.SquirrelMods memory m = stats.squirrelMods(tokenId);
+        return (m.raidOddsBps, m.stealBps);
+    }
+
     /// @return odds scaled to PRECISION that `squirrelId` beats `targetId` now
     function oddsAgainst(uint16 squirrelId, uint16 targetId) external view returns (uint256) {
-        return Ops.raidOdds(farm.alphaOf(squirrelId), firewallOf(targetId));
+        (uint256 oddsBps, ) = _squirrelMods(squirrelId);
+        uint256 odds = (Ops.raidOdds(farm.alphaOf(squirrelId), firewallOf(targetId)) * oddsBps) / 10000;
+        return odds > (Ops.PRECISION * 90) / 100 ? (Ops.PRECISION * 90) / 100 : odds;
     }
+
+    function setStats(address v) external onlyOwner { stats = ITraitStats(v); }
 
     function setPaused(bool v) external onlyOwner {
         if (v) _pause(); else _unpause();

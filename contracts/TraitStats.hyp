@@ -1,0 +1,137 @@
+// SPDX-License-Identifier: MIT
+pragma hyperion >=0.0.1;
+
+import "./lib/openzeppelin/access/Ownable.hyp";
+import "./interfaces/ITraitStats.hyp";
+import "./interfaces/ISquirrelGame.hyp";
+
+/**
+ * TraitStats — turns cosmetic traits into mechanical ones.
+ *
+ * Until now a Gold-Plated chassis was only a label. Here each trait slot maps
+ * to a modifier, so the rare rolls that the alias tables already produce are
+ * worth chasing: a rig's frame governs how fast it wears, its cooling governs
+ * what coolant costs, its power core governs output, its mounting governs
+ * repair bills. Squirrels get the same treatment across raiding and tax.
+ *
+ * Generation stacks on top. A fused rig carries +6% hashrate and 4% slower
+ * decay per generation, which is what makes burning two rigs for one worth
+ * doing.
+ *
+ * Deployed separately and reachable through ITraitStats so the whole table can
+ * be retuned by swapping the implementation, leaving the accounting contracts
+ * untouched.
+ */
+contract TraitStats is Ownable, ITraitStats {
+    ISquirrelGame public game;
+
+    uint16 public constant NEUTRAL = 10000;
+    /// @dev per-generation bonuses, applied multiplicatively
+    uint16 public constant GEN_HASHRATE_BONUS_BPS = 600;
+    uint16 public constant GEN_DECAY_RELIEF_BPS = 400;
+    uint8 public constant MAX_GEN_SCALING = 8;
+
+    /* ---------------------------------------------------------- RIG TABLES */
+
+    // slot 0 — Chassis: Carbon, Titanium, Obsidian, Cryo-White, Gold-Plated
+    uint16[5] private CHASSIS_DECAY = [10000, 9500, 9000, 8500, 7500];
+    // slot 1 — Cooling: Air-Cooled, Liquid Nitrogen, Helium-3, Zero-Point
+    uint16[4] private COOLING_COST = [10000, 9000, 8000, 6500];
+    // slot 4 — Power Core: Fusion Cell, Thorium Core, Antimatter
+    uint16[3] private CORE_HASHRATE = [10000, 10800, 12000];
+    // slot 7 — Mounting: Steel Rack, Mag-Lev, Vacuum Cradle
+    uint16[3] private MOUNT_REPAIR = [10000, 9200, 8500];
+
+    /* ----------------------------------------------------- SQUIRREL TABLES */
+
+    // slot 10 — Headgear: None, Visor Rig, Hood, Crown
+    uint16[4] private HEADGEAR_TAX = [10000, 10400, 10800, 11500];
+    // slot 12 — Optics: Green Lens, Violet Lens, Gold Lens
+    uint16[3] private OPTICS_ODDS = [10000, 10800, 12000];
+    // slot 15 — Gear: None, Bandolier, Katana Rig, Royal Mantle
+    uint16[4] private GEAR_ENERGY = [10000, 9500, 9000, 8000];
+    // slot 16 — Paws: Bare, Wrapped, Armored, Gilded
+    uint16[4] private PAWS_STEAL = [10000, 10500, 11200, 12500];
+
+    constructor(address _game) {
+        game = ISquirrelGame(_game);
+    }
+
+    function setGame(address _game) external onlyOwner {
+        game = ISquirrelGame(_game);
+    }
+
+    /* ------------------------------------------------------------ LOOKUPS */
+
+    function _pick(uint16[5] storage t, uint8 i) private view returns (uint16) {
+        return i < 5 ? t[i] : NEUTRAL;
+    }
+    function _pick4(uint16[4] storage t, uint8 i) private view returns (uint16) {
+        return i < 4 ? t[i] : NEUTRAL;
+    }
+    function _pick3(uint16[3] storage t, uint8 i) private view returns (uint16) {
+        return i < 3 ? t[i] : NEUTRAL;
+    }
+
+    function rigMods(uint256 tokenId) external view override returns (RigMods memory m) {
+        ISquirrelGame.QuantumSquirrel memory t = game.getTokenTraits(tokenId);
+        if (!t.isQuantum) {
+            return RigMods(NEUTRAL, NEUTRAL, NEUTRAL, NEUTRAL);
+        }
+
+        uint256 gen = game.generationOf(tokenId);
+        if (gen > MAX_GEN_SCALING) gen = MAX_GEN_SCALING;
+
+        uint256 hashrate = _pick3(CORE_HASHRATE, t.nose);
+        hashrate = (hashrate * (10000 + gen * GEN_HASHRATE_BONUS_BPS)) / 10000;
+
+        uint256 decay = _pick(CHASSIS_DECAY, t.chassis);
+        uint256 relief = gen * GEN_DECAY_RELIEF_BPS;
+        decay = relief >= decay ? 1 : (decay * (10000 - relief)) / 10000;
+
+        m.hashrateBps = uint16(hashrate > 65535 ? 65535 : hashrate);
+        m.decayBps = uint16(decay);
+        m.coolantBps = _pick4(COOLING_COST, t.head);
+        m.repairBps = _pick3(MOUNT_REPAIR, t.feet);
+    }
+
+    function squirrelMods(uint256 tokenId)
+        external
+        view
+        override
+        returns (SquirrelMods memory m)
+    {
+        ISquirrelGame.QuantumSquirrel memory t = game.getTokenTraits(tokenId);
+        if (t.isQuantum) {
+            return SquirrelMods(NEUTRAL, NEUTRAL, NEUTRAL, NEUTRAL);
+        }
+        m.raidOddsBps = _pick3(OPTICS_ODDS, t.eyes);
+        m.stealBps = _pick4(PAWS_STEAL, t.feet);
+        m.energyBps = _pick4(GEAR_ENERGY, t.neck);
+        m.taxBps = _pick4(HEADGEAR_TAX, t.head);
+    }
+
+    /**
+     * Relative strength of a trait option, used by the forge to decide which
+     * parent's roll a fused rig inherits. Higher wins.
+     *
+     * Cost-style stats (decay, coolant, repair) are inverted, since a lower
+     * number is the better roll there.
+     */
+    function traitWeight(uint8 slot, uint8 index) external pure override returns (uint16) {
+        if (slot == 0) return _inv([uint16(10000), 9500, 9000, 8500, 7500][index < 5 ? index : 0]);
+        if (slot == 1) return _inv([uint16(10000), 9000, 8000, 6500][index < 4 ? index : 0]);
+        if (slot == 4) return [uint16(10000), 10800, 12000][index < 3 ? index : 0];
+        if (slot == 7) return _inv([uint16(10000), 9200, 8500][index < 3 ? index : 0]);
+        if (slot == 12) return [uint16(10000), 10800, 12000][index < 3 ? index : 0];
+        if (slot == 16) return [uint16(10000), 10500, 11200, 12500][index < 4 ? index : 0];
+        if (slot == 15) return _inv([uint16(10000), 9500, 9000, 8000][index < 4 ? index : 0]);
+        if (slot == 10) return [uint16(10000), 10400, 10800, 11500][index < 4 ? index : 0];
+        // cosmetic-only slots: rarer index wins ties, nothing more
+        return uint16(10000 + index);
+    }
+
+    function _inv(uint16 v) private pure returns (uint16) {
+        return v >= 20000 ? 0 : uint16(20000 - v);
+    }
+}

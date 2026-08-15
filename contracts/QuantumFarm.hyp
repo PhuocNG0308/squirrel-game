@@ -9,6 +9,7 @@ import "./lib/CommitReveal.hyp";
 import "./lib/Ops.hyp";
 
 import "./interfaces/ISquirrelGame.hyp";
+import "./interfaces/ITraitStats.hyp";
 import "./SquirrelGame.hyp";
 import "./QBTC.hyp";
 
@@ -132,6 +133,9 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
 
     /// @dev authorised to drain a rig's settled yield on a successful raid
     address public raidPost;
+
+    /// @dev swappable table turning cosmetic traits into mechanical ones
+    ITraitStats public stats;
 
     bool public rescueEnabled;
 
@@ -276,7 +280,8 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
         uint256 fuelledTo = r.fuelExpiry < to ? r.fuelExpiry : to;
         if (fuelledTo > from && r.durability > 0) {
             uint256 fuelled = fuelledTo - from;
-            uint256 avgHash = Ops.averageHashrate(r.durability, fuelled);
+            ITraitStats.RigMods memory mods = _rigMods(r.tokenId);
+            uint256 avgHash = (Ops.averageHashrate(r.durability, fuelled) * mods.hashrateBps) / 10000;
             uint256 streak = Ops.streakMultiplier(r.streakDays);
 
             uint256 accDelta = accPerHash - r.rewardDebt;
@@ -307,7 +312,8 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
             seasonUptimeTotal[season] += fuelled;
 
             // durability only decays while actually mining
-            _setDurability(r, Ops.decayed(r.durability, fuelled));
+            // a sturdier chassis and a higher generation both slow wear
+            _setDurability(r, Ops.decayed(r.durability, (fuelled * mods.decayBps) / 10000));
         }
 
         r.lastSettled = uint40(to);
@@ -356,7 +362,7 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
             owed += _settleRig(r);
             _bumpStreak(r);
 
-            uint256 c = Ops.coolantCost(duration, daily);
+            uint256 c = (Ops.coolantCost(duration, daily) * _rigMods(r.tokenId).coolantBps) / 10000;
             cost += c;
             uint256 base = r.fuelExpiry > block.timestamp ? r.fuelExpiry : block.timestamp;
             r.fuelExpiry = uint40(base + duration);
@@ -383,7 +389,7 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
             owed += _settleRig(r);
 
             uint8 before = r.durability;
-            cost += Ops.repairCost(before, daily);
+            cost += (Ops.repairCost(before, daily) * _rigMods(r.tokenId).repairBps) / 10000;
             _setDurability(r, Ops.DURABILITY_MAX);
             emit Repaired(r.tokenId, before, cost);
         }
@@ -527,6 +533,19 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
 
     function rigOwner(uint16 tokenId) external view returns (address) {
         return rigs[tokenId].owner;
+    }
+
+    /// @dev whole days staked without interruption; resets if the rig leaves
+    function stakedDays(uint16 tokenId) external view returns (uint256) {
+        Rig storage r = rigs[tokenId];
+        if (r.owner == address(0)) return 0;
+        return (block.timestamp - r.stakedAt) / 1 days;
+    }
+
+    /// @dev neutral modifiers when no stats table is wired, so the farm still runs
+    function _rigMods(uint256 tokenId) internal view returns (ITraitStats.RigMods memory m) {
+        if (address(stats) == address(0)) return ITraitStats.RigMods(10000, 10000, 10000, 10000);
+        return stats.rigMods(tokenId);
     }
 
     function guardOwner(uint16 tokenId) external view returns (address, uint8) {
@@ -738,6 +757,8 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
     /* ------------------------------------------------------------- ADMIN */
 
     function setRaidPost(address v) external onlyOwner { raidPost = v; }
+
+    function setStats(address v) external onlyOwner { stats = ITraitStats(v); }
 
     function setRescueEnabled(bool v) external onlyOwner { rescueEnabled = v; }
 

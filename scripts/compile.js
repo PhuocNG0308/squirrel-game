@@ -17,7 +17,7 @@ const OUT = path.join(ROOT, 'build');
 const ABI_DIR = path.join(ROOT, 'abi');
 
 /** Our own contracts, as opposed to vendored OpenZeppelin. */
-const OWN = ['QBTC', 'SquirrelGame', 'QuantumFarm', 'RaidPost', 'SeasonLedger', 'Traits'];
+const OWN = ['QBTC','SquirrelGame','QuantumFarm','RaidPost','SeasonLedger','Quests','Fusion','TraitStats','Traits'];
 const EIP170_LIMIT = 24576;
 
 function collectSources(dir, base = '') {

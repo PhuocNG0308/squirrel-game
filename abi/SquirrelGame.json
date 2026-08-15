@@ -487,6 +487,164 @@
         "type": "uint256"
       }
     ],
+    "name": "forgeBurn",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "to",
+        "type": "address"
+      },
+      {
+        "components": [
+          {
+            "internalType": "bool",
+            "name": "isQuantum",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint8",
+            "name": "chassis",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "head",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "ears",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "eyes",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "nose",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "mouth",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "neck",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "feet",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "tierIndex",
+            "type": "uint8"
+          }
+        ],
+        "internalType": "struct ISquirrelGame.QuantumSquirrel",
+        "name": "t",
+        "type": "tuple"
+      },
+      {
+        "internalType": "uint8",
+        "name": "gen",
+        "type": "uint8"
+      }
+    ],
+    "name": "forgeMint",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "forged",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "fusionForge",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "generation",
+    "outputs": [
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
+    "name": "generationOf",
+    "outputs": [
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
     "name": "getApproved",
     "outputs": [
       {
@@ -909,6 +1067,19 @@
       }
     ],
     "name": "setFarm",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_forge",
+        "type": "address"
+      }
+    ],
+    "name": "setFusionForge",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"

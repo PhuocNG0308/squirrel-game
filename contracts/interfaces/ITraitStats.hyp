@@ -1,0 +1,33 @@
+// SPDX-License-Identifier: MIT
+pragma hyperion >=0.0.1;
+
+/**
+ * Derived stats: what a token's cosmetic traits actually do.
+ *
+ * Every modifier is in basis points against a 10000 baseline, so 10000 is
+ * neutral, 12000 is +20%, and 8000 is a 20% discount. Keeping the whole table
+ * behind an interface means the numbers can be retuned by deploying a new
+ * implementation and repointing the farm, without touching accounting code.
+ */
+interface ITraitStats {
+    struct RigMods {
+        uint16 hashrateBps; // mining output
+        uint16 decayBps;    // durability lost per day
+        uint16 coolantBps;  // cost of a coolant window
+        uint16 repairBps;   // cost of a repair
+    }
+
+    struct SquirrelMods {
+        uint16 raidOddsBps; // chance a raid lands
+        uint16 stealBps;    // share taken on a successful raid
+        uint16 energyBps;   // acorn energy burned on watch
+        uint16 taxBps;      // share of the Drey tax pool
+    }
+
+    function rigMods(uint256 tokenId) external view returns (RigMods memory);
+
+    function squirrelMods(uint256 tokenId) external view returns (SquirrelMods memory);
+
+    /// @dev per-slot weight used to pick the stronger parent trait when fusing
+    function traitWeight(uint8 slot, uint8 index) external pure returns (uint16);
+}

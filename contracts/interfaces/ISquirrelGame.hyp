@@ -29,4 +29,7 @@ interface ISquirrelGame {
     function getPaidTokens() external view returns (uint256);
 
     function getTokenTraits(uint256 tokenId) external view returns (QuantumSquirrel memory);
+
+    /// @dev 0 for a minted token, incremented once per fusion
+    function generationOf(uint256 tokenId) external view returns (uint8);
 }

@@ -480,6 +480,32 @@
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "v",
+        "type": "address"
+      }
+    ],
+    "name": "setStats",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "stats",
+    "outputs": [
+      {
+        "internalType": "contract ITraitStats",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "totalBurned",
     "outputs": [

@@ -1,0 +1,136 @@
+// SPDX-License-Identifier: MIT
+pragma hyperion >=0.0.1;
+
+import "./lib/openzeppelin/access/Ownable.hyp";
+import "./lib/openzeppelin/security/Pausable.hyp";
+import "./lib/openzeppelin/security/ReentrancyGuard.hyp";
+import "./lib/Ops.hyp";
+
+import "./interfaces/ISquirrelGame.hyp";
+import "./interfaces/ITraitStats.hyp";
+import "./SquirrelGame.hyp";
+import "./QBTC.hyp";
+
+/**
+ * Fusion — the endgame sink.
+ *
+ * Two tokens of the same species and generation are burned to forge one of the
+ * next generation, which carries a permanent hashrate bonus and slower wear.
+ * Three things fall out of that: large holders get something to spend on
+ * besides more mints, NFT supply strictly falls, and low-tier tokens acquire a
+ * floor by being useful as feedstock.
+ *
+ * Inheritance is deterministic — each trait slot takes whichever parent's roll
+ * scores higher in TraitStats. No randomness means no commit-reveal, and it
+ * makes the outcome something a player can plan toward rather than gamble on.
+ */
+contract Fusion is Ownable, Pausable, ReentrancyGuard {
+    SquirrelGame public game;
+    ITraitStats public stats;
+    QBTC public qbtc;
+
+    /// @dev flat forge fee, burned, expressed in qBTC
+    uint256 public forgeFee = 500 ether;
+    uint8 public constant MAX_GENERATION = 5;
+
+    uint256 public totalForged;
+    uint256 public totalBurned;
+
+    event Forged(
+        address indexed owner,
+        uint256 indexed tokenId,
+        uint256 parentA,
+        uint256 parentB,
+        uint8 generation
+    );
+
+    constructor(address _game, address _stats, address _qbtc) {
+        game = SquirrelGame(_game);
+        stats = ITraitStats(_stats);
+        qbtc = QBTC(_qbtc);
+    }
+
+    /**
+     * Burns `a` and `b` and forges their successor.
+     *
+     * Both must be held by the caller and unstaked — a staked token is owned by
+     * the farm, so this cannot consume anything that is mid-accrual.
+     */
+    function fuse(uint256 a, uint256 b)
+        external
+        whenNotPaused
+        nonReentrant
+        returns (uint256 tokenId)
+    {
+        require(a != b, "Pick two different tokens");
+        require(game.ownerOf(a) == _msgSender(), "Not your token");
+        require(game.ownerOf(b) == _msgSender(), "Not your token");
+
+        ISquirrelGame.QuantumSquirrel memory ta = game.getTokenTraits(a);
+        ISquirrelGame.QuantumSquirrel memory tb = game.getTokenTraits(b);
+        require(ta.isQuantum == tb.isQuantum, "Species must match");
+
+        uint8 genA = game.generationOf(a);
+        require(genA == game.generationOf(b), "Generations must match");
+        require(genA < MAX_GENERATION, "Already at the final generation");
+
+        ISquirrelGame.QuantumSquirrel memory child = _combine(ta, tb);
+
+        qbtc.burn(_msgSender(), forgeFee);
+        totalBurned += forgeFee;
+
+        game.forgeBurn(a);
+        game.forgeBurn(b);
+
+        tokenId = game.forgeMint(_msgSender(), child, genA + 1);
+        totalForged += 1;
+
+        emit Forged(_msgSender(), tokenId, a, b, genA + 1);
+    }
+
+    /**
+     * Picks the stronger roll per slot.
+     *
+     * Slot numbers follow the collection's layout: 0-8 for rigs, 9-17 for
+     * squirrels, which is why the shift is applied before asking TraitStats
+     * for a weight.
+     */
+    function _combine(
+        ISquirrelGame.QuantumSquirrel memory x,
+        ISquirrelGame.QuantumSquirrel memory y
+    ) internal view returns (ISquirrelGame.QuantumSquirrel memory c) {
+        uint8 shift = x.isQuantum ? 0 : 9;
+        c.isQuantum = x.isQuantum;
+        c.chassis   = _better(0 + shift, x.chassis, y.chassis);
+        c.head      = _better(1 + shift, x.head, y.head);
+        c.ears      = _better(2 + shift, x.ears, y.ears);
+        c.eyes      = _better(3 + shift, x.eyes, y.eyes);
+        c.nose      = _better(4 + shift, x.nose, y.nose);
+        c.mouth     = _better(5 + shift, x.mouth, y.mouth);
+        c.neck      = _better(6 + shift, x.neck, y.neck);
+        c.feet      = _better(7 + shift, x.feet, y.feet);
+        // tier is alpha-bearing: keep the stronger squirrel's rank, which is
+        // the LOWER index, since index 0 is Tier 3
+        c.tierIndex = x.tierIndex < y.tierIndex ? x.tierIndex : y.tierIndex;
+    }
+
+    function _better(uint8 slot, uint8 i, uint8 j) internal view returns (uint8) {
+        return stats.traitWeight(slot, i) >= stats.traitWeight(slot, j) ? i : j;
+    }
+
+    /// @dev preview a fusion without spending anything
+    function previewFuse(uint256 a, uint256 b)
+        external
+        view
+        returns (ISquirrelGame.QuantumSquirrel memory)
+    {
+        return _combine(game.getTokenTraits(a), game.getTokenTraits(b));
+    }
+
+    function setForgeFee(uint256 v) external onlyOwner { forgeFee = v; }
+    function setStats(address v) external onlyOwner { stats = ITraitStats(v); }
+
+    function setPaused(bool v) external onlyOwner {
+        if (v) _pause(); else _unpause();
+    }
+}

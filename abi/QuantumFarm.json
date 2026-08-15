@@ -1161,6 +1161,19 @@
   {
     "inputs": [
       {
+        "internalType": "address",
+        "name": "v",
+        "type": "address"
+      }
+    ],
+    "name": "setStats",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint16",
         "name": "tokenId",
         "type": "uint16"
@@ -1193,6 +1206,38 @@
     "name": "stake",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "tokenId",
+        "type": "uint16"
+      }
+    ],
+    "name": "stakedDays",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "stats",
+    "outputs": [
+      {
+        "internalType": "contract ITraitStats",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {
