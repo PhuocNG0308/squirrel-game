@@ -1,0 +1,199 @@
+// SPDX-License-Identifier: MIT
+pragma hyperion >=0.0.1;
+
+import "./lib/openzeppelin/access/Ownable.hyp";
+import "./lib/openzeppelin/security/Pausable.hyp";
+import "./lib/openzeppelin/security/ReentrancyGuard.hyp";
+import "./lib/CommitReveal.hyp";
+import "./lib/Ops.hyp";
+
+import "./interfaces/IQuantumFarm.hyp";
+import "./QBTC.hyp";
+
+/**
+ * RaidPost — active play for squirrel owners, and the arms race it provokes.
+ *
+ * The passive 20% tax is the floor of a squirrel's income, not the whole of
+ * it. A raid spends acorn energy to take a share of one named rig's unclaimed
+ * yield, with odds weighted by the squirrel's alpha against the target's
+ * firewall. Rig owners answer by burning qBTC on firewall points, which decay
+ * a point per season — so defence is rented, never owned outright, and both
+ * sides fund a standing sink.
+ *
+ * Raid outcomes are random, so they are committed a block ahead. Reading the
+ * result inside the same transaction would let an attacker wrap the call and
+ * revert every loss.
+ */
+contract RaidPost is Ownable, Pausable, ReentrancyGuard {
+    struct RaidCommit {
+        uint16 squirrelId;
+        uint16 targetId;
+        uint64 revealBlock;
+        uint256 salt;
+    }
+
+    IQuantumFarm public farm;
+    QBTC public qbtc;
+
+    mapping(address => RaidCommit) public raids;
+    uint256 public commitNonce;
+
+    /// @dev firewall points as last written, before season decay is applied
+    mapping(uint256 => uint8) public firewallRaw;
+    /// @dev season the raw value was written in
+    mapping(uint256 => uint32) public firewallSeason;
+
+    /// @dev season => squirrel => qBTC stolen; the Raiders ladder
+    mapping(uint256 => mapping(uint256 => uint256)) public raiderSeasonScore;
+    mapping(uint256 => uint256) public seasonRaidTotal;
+
+    uint256 public totalBurned;
+
+    event RaidCommitted(address indexed raider, uint16 squirrel, uint16 target, uint64 revealBlock);
+    event RaidResolved(
+        address indexed raider,
+        uint16 squirrel,
+        uint16 target,
+        bool success,
+        uint256 stolen
+    );
+    event Reinforced(uint16 indexed tokenId, uint8 points, uint256 cost);
+
+    constructor(address _farm, address _qbtc) {
+        farm = IQuantumFarm(_farm);
+        qbtc = QBTC(_qbtc);
+    }
+
+    /* -------------------------------------------------------- FIREWALL */
+
+    /// @dev current firewall strength, after the seasons that have elapsed
+    function firewallOf(uint16 tokenId) public view returns (uint8) {
+        uint256 season = farm.seasonNow();
+        uint256 written = firewallSeason[tokenId];
+        uint256 elapsed = season > written ? season - written : 0;
+        return Ops.firewallAfterDecay(firewallRaw[tokenId], elapsed);
+    }
+
+    /**
+     * Buys one firewall point for each listed rig. Cost rises with the point
+     * already held, so defence cannot simply be bought outright in one go.
+     */
+    function reinforce(uint16[] calldata tokenIds) external whenNotPaused nonReentrant {
+        uint256 daily = farm.fullRateDailyYield();
+        uint256 season = farm.seasonNow();
+        uint256 cost;
+
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            uint16 id = tokenIds[i];
+            require(farm.rigOwner(id) == _msgSender(), "Not your rig");
+
+            uint8 current = firewallOf(id);
+            require(current < Ops.FIREWALL_MAX, "Firewall already at maximum");
+
+            cost += Ops.firewallCost(current, daily);
+            firewallRaw[id] = current + 1;
+            firewallSeason[id] = uint32(season);
+            emit Reinforced(id, current + 1, cost);
+        }
+
+        if (cost > 0) {
+            qbtc.burn(_msgSender(), cost);
+            totalBurned += cost;
+        }
+    }
+
+    /* ------------------------------------------------------------ RAIDS */
+
+    /**
+     * Step 1 of 2 — spend energy and name a target.
+     *
+     * Energy is taken up front whether or not the raid lands, so a failed raid
+     * still costs something and spamming attempts is not free.
+     */
+    function commitRaid(uint16 squirrelId, uint16 targetId)
+        external
+        whenNotPaused
+        nonReentrant
+    {
+        require(raids[_msgSender()].squirrelId == 0, "Resolve your pending raid");
+
+        (address guardOwner, uint8 energy) = farm.guardOwner(squirrelId);
+        require(guardOwner == _msgSender(), "Not your squirrel");
+        require(energy >= Ops.RAID_ENERGY_COST, "Not enough acorn energy");
+
+        address target = farm.rigOwner(targetId);
+        require(target != address(0), "Target is not staked");
+        require(target != _msgSender(), "Cannot raid your own rig");
+
+        farm.spendEnergy(squirrelId, Ops.RAID_ENERGY_COST);
+
+        uint64 rb = CommitReveal.targetBlock();
+        raids[_msgSender()] = RaidCommit({
+            squirrelId: squirrelId,
+            targetId: targetId,
+            revealBlock: rb,
+            salt: CommitReveal.salt(_msgSender(), commitNonce++)
+        });
+        emit RaidCommitted(_msgSender(), squirrelId, targetId, rb);
+    }
+
+    /**
+     * Step 2 of 2 — resolve against the committed block hash.
+     *
+     * Permissionless, like every other reveal in the game: the outcome was
+     * fixed the moment `revealBlock` was mined, so declining to resolve a lost
+     * raid gains nothing.
+     */
+    function revealRaid(address raider) public whenNotPaused nonReentrant {
+        RaidCommit memory c = raids[raider];
+        require(c.squirrelId != 0, "No pending raid");
+
+        uint256 seed = CommitReveal.seed(c.revealBlock, c.salt);
+        delete raids[raider];
+
+        uint256 alpha = farm.alphaOf(c.squirrelId);
+        uint256 odds = Ops.raidOdds(alpha, firewallOf(c.targetId));
+        bool success = (seed % Ops.PRECISION) < odds;
+
+        uint256 stolen;
+        if (success && farm.rigOwner(c.targetId) != address(0)) {
+            stolen = farm.raidDrain(c.targetId, Ops.RAID_STEAL_BPS, raider);
+            uint256 season = farm.seasonNow();
+            raiderSeasonScore[season][c.squirrelId] += stolen;
+            seasonRaidTotal[season] += stolen;
+        }
+
+        emit RaidResolved(raider, c.squirrelId, c.targetId, success, stolen);
+    }
+
+    function revealRaid() external {
+        revealRaid(_msgSender());
+    }
+
+    /// @dev recovery for a raid left past the 256-block blockhash window
+    function reanchorRaid(address raider) external {
+        RaidCommit storage c = raids[raider];
+        require(c.squirrelId != 0, "No pending raid");
+        require(CommitReveal.isExpired(c.revealBlock), "Still revealable");
+        c.revealBlock = CommitReveal.targetBlock();
+        c.salt = CommitReveal.salt(raider, commitNonce++);
+    }
+
+    /* ------------------------------------------------------------ VIEWS */
+
+    function canReveal(address raider) external view returns (bool) {
+        RaidCommit storage c = raids[raider];
+        return c.squirrelId != 0
+            && CommitReveal.isReady(c.revealBlock)
+            && !CommitReveal.isExpired(c.revealBlock);
+    }
+
+    /// @return odds scaled to PRECISION that `squirrelId` beats `targetId` now
+    function oddsAgainst(uint16 squirrelId, uint16 targetId) external view returns (uint256) {
+        return Ops.raidOdds(farm.alphaOf(squirrelId), firewallOf(targetId));
+    }
+
+    function setPaused(bool v) external onlyOwner {
+        if (v) _pause(); else _unpause();
+    }
+}

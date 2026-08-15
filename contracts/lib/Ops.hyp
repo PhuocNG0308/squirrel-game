@@ -218,6 +218,106 @@ library Ops {
         return ((ENERGY_MAX - energy) * ACORN_PER_POINT_BPS * referenceIncome) / 10000;
     }
 
+    /* ------------------------------------------------- SEASON POOLS */
+
+    /// @dev the season ladders' share of the 21,000,000 cap
+    uint256 internal constant SEASON_POOL = 5_250_000 ether;
+    uint256 internal constant SEASON_0_REWARD = SEASON_POOL * 4 / 100;
+
+    /// @dev ladder split, in basis points
+    uint256 internal constant LADDER_MINERS_BPS = 4000;
+    uint256 internal constant LADDER_RAIDERS_BPS = 3500;
+    uint256 internal constant LADDER_OPERATORS_BPS = 2500;
+
+    /// @dev reward budget for a whole season, decaying with the same 4% curve
+    function seasonPoolFor(uint256 season) internal pure returns (uint256) {
+        if (season > MAX_SEASON) return 0;
+        uint256 pool = SEASON_0_REWARD;
+        for (uint256 i = 0; i < season; i++) {
+            pool = (pool * DECAY_NUM) / DECAY_DEN;
+            if (pool == 0) return 0;
+        }
+        return pool;
+    }
+
+    /* ----------------------------------------------------------- RAIDS */
+
+    uint8 internal constant RAID_ENERGY_COST = 15;
+    /// @dev share of a target's settled yield a successful raid takes
+    uint256 internal constant RAID_STEAL_BPS = 2500;
+    /// @dev flattens the odds so a bare rig is not a free lunch
+    uint256 internal constant RAID_DEFENCE_BASE = 4;
+    uint8 internal constant FIREWALL_MAX = 20;
+    /// @dev firewall points lost per season; defence is rented, never owned
+    uint8 internal constant FIREWALL_DECAY_PER_SEASON = 1;
+
+    /**
+     * Odds a raid succeeds, scaled to PRECISION.
+     *
+     *     P = alpha / (alpha + firewall + base)
+     *
+     * A Tier 3 squirrel (alpha 8) against an undefended rig wins 8/12 = 67%;
+     * against a fully upgraded firewall, 8/32 = 25%. Tier 1 (alpha 6) spans
+     * 60% down to 20%, so tier matters without ever making defence pointless.
+     */
+    function raidOdds(uint256 alpha, uint256 firewall) internal pure returns (uint256) {
+        uint256 denom = alpha + firewall + RAID_DEFENCE_BASE;
+        if (denom == 0) return 0;
+        return (alpha * PRECISION) / denom;
+    }
+
+    /// @dev cost of the next firewall point, priced off full-rate daily yield
+    function firewallCost(uint256 current, uint256 fullRateDailyYield)
+        internal
+        pure
+        returns (uint256)
+    {
+        // rises with each point so defence cannot simply be bought outright
+        return ((current + 1) * 15 * fullRateDailyYield) / 100;
+    }
+
+    function firewallAfterDecay(uint256 firewall, uint256 seasonsElapsed)
+        internal
+        pure
+        returns (uint8)
+    {
+        uint256 lost = seasonsElapsed * FIREWALL_DECAY_PER_SEASON;
+        if (lost >= firewall) return 0;
+        return uint8(firewall - lost);
+    }
+
+    /* ------------------------------------------------ DEFENCE RANK */
+
+    /// @dev tax share lost per season without a signature patch
+    uint256 internal constant RANK_DECAY_BPS = 1000;
+    /// @dev decay floor; an unpatched squirrel still earns half
+    uint256 internal constant RANK_FLOOR_BPS = 5000;
+
+    /**
+     * Multiplier on a squirrel's tax share, scaled to PRECISION.
+     *
+     * Applied at claim time rather than by lowering a stored rank: the Drey
+     * buckets guards by alpha, so literally changing a rank would mean
+     * migrating every staked squirrel between buckets — unbounded work that
+     * cannot fit in one transaction.
+     */
+    function rankMultiplier(uint256 seasonsSincePatch) internal pure returns (uint256) {
+        uint256 lost = seasonsSincePatch * RANK_DECAY_BPS;
+        if (lost > 10000 - RANK_FLOOR_BPS) lost = 10000 - RANK_FLOOR_BPS;
+        return (PRECISION * (10000 - lost)) / 10000;
+    }
+
+    /// @dev cost to restore a squirrel's rank to full
+    function patchCost(uint256 seasonsSincePatch, uint256 referenceIncome)
+        internal
+        pure
+        returns (uint256)
+    {
+        if (seasonsSincePatch == 0) return 0;
+        uint256 seasons = seasonsSincePatch > 5 ? 5 : seasonsSincePatch;
+        return (seasons * 30 * referenceIncome) / 100;
+    }
+
     /* ---------------------------------------------------- RETENTION */
 
     /// @dev uptime streak: +1% hashrate per consecutive day, capped at +25%

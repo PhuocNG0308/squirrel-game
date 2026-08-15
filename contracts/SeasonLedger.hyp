@@ -1,0 +1,140 @@
+// SPDX-License-Identifier: MIT
+pragma hyperion >=0.0.1;
+
+import "./lib/openzeppelin/access/Ownable.hyp";
+import "./lib/openzeppelin/security/ReentrancyGuard.hyp";
+import "./lib/Ops.hyp";
+
+import "./interfaces/IQuantumFarm.hyp";
+import "./RaidPost.hyp";
+import "./QBTC.hyp";
+
+/**
+ * SeasonLedger — pays out the three season ladders.
+ *
+ * Every ladder is settled **pro-rata by per-NFT score**, never by rank band.
+ * That is what makes the payout Sybil-neutral: a fleet split across fifty
+ * wallets produces exactly the same scores and the same totals, so splitting
+ * gains nothing and nobody bothers. The trade is stated plainly in the design
+ * document — season rewards end up proportional to NFTs held, and on an open
+ * chain that is unavoidable.
+ *
+ * A useful side effect of dropping rank bands: there is no leaderboard to sort
+ * on chain. Each claim is a division.
+ *
+ *   Miners    40%  — gross qBTC produced
+ *   Raiders   35%  — qBTC stolen in raids
+ *   Operators 25%  — seconds spent actually mining, unweighted by hashrate,
+ *                    so a well-tended but damaged rig still competes
+ */
+contract SeasonLedger is Ownable, ReentrancyGuard {
+    IQuantumFarm public farm;
+    RaidPost public raidPost;
+    QBTC public qbtc;
+
+    /// @dev season => tokenId => already paid, per ladder
+    mapping(uint256 => mapping(uint256 => bool)) public minerClaimed;
+    mapping(uint256 => mapping(uint256 => bool)) public operatorClaimed;
+    mapping(uint256 => mapping(uint256 => bool)) public raiderClaimed;
+
+    mapping(uint256 => uint256) public seasonPaid;
+
+    event SeasonClaimed(
+        address indexed owner,
+        uint256 indexed season,
+        uint256 miners,
+        uint256 operators,
+        uint256 raiders
+    );
+
+    constructor(address _farm, address _raidPost, address _qbtc) {
+        farm = IQuantumFarm(_farm);
+        raidPost = RaidPost(_raidPost);
+        qbtc = QBTC(_qbtc);
+    }
+
+    /* ------------------------------------------------------------ VIEWS */
+
+    function poolFor(uint256 season) public pure returns (uint256) {
+        return Ops.seasonPoolFor(season);
+    }
+
+    /// @dev a season can only be settled once it is over
+    function isClosed(uint256 season) public view returns (bool) {
+        return season < farm.seasonNow();
+    }
+
+    function rigReward(uint256 season, uint16 tokenId)
+        public
+        view
+        returns (uint256 miners, uint256 operators)
+    {
+        uint256 pool = Ops.seasonPoolFor(season);
+
+        uint256 minedTotal = farm.seasonMinedTotal(season);
+        if (minedTotal > 0 && !minerClaimed[season][tokenId]) {
+            miners = (pool * Ops.LADDER_MINERS_BPS / 10000)
+                * farm.rigSeasonMined(season, tokenId) / minedTotal;
+        }
+
+        uint256 uptimeTotal = farm.seasonUptimeTotal(season);
+        if (uptimeTotal > 0 && !operatorClaimed[season][tokenId]) {
+            operators = (pool * Ops.LADDER_OPERATORS_BPS / 10000)
+                * farm.rigSeasonUptime(season, tokenId) / uptimeTotal;
+        }
+    }
+
+    function squirrelReward(uint256 season, uint16 tokenId) public view returns (uint256) {
+        uint256 total = raidPost.seasonRaidTotal(season);
+        if (total == 0 || raiderClaimed[season][tokenId]) return 0;
+        uint256 pool = Ops.seasonPoolFor(season);
+        return (pool * Ops.LADDER_RAIDERS_BPS / 10000)
+            * raidPost.raiderSeasonScore(season, tokenId) / total;
+    }
+
+    /* ----------------------------------------------------------- CLAIM */
+
+    /**
+     * Settles a closed season for tokens the caller still has staked.
+     *
+     * Ownership is read at claim time rather than snapshotted at the season
+     * close: a snapshot would need a write per token per season, and selling a
+     * rig mid-season is rare enough that the simpler rule is the better trade.
+     */
+    function claimSeason(uint256 season, uint16[] calldata rigIds, uint16[] calldata squirrelIds)
+        external
+        nonReentrant
+    {
+        require(isClosed(season), "Season is not closed yet");
+
+        uint256 miners;
+        uint256 operators;
+        uint256 raiders;
+
+        for (uint256 i = 0; i < rigIds.length; i++) {
+            uint16 id = rigIds[i];
+            require(farm.rigOwner(id) == _msgSender(), "Not your rig");
+            (uint256 m, uint256 o) = rigReward(season, id);
+            minerClaimed[season][id] = true;
+            operatorClaimed[season][id] = true;
+            miners += m;
+            operators += o;
+        }
+
+        for (uint256 i = 0; i < squirrelIds.length; i++) {
+            uint16 id = squirrelIds[i];
+            (address owner, ) = farm.guardOwner(id);
+            require(owner == _msgSender(), "Not your squirrel");
+            raiders += squirrelReward(season, id);
+            raiderClaimed[season][id] = true;
+        }
+
+        uint256 total = miners + operators + raiders;
+        require(total > 0, "Nothing to claim");
+
+        seasonPaid[season] += total;
+        qbtc.mint(_msgSender(), total);
+
+        emit SeasonClaimed(_msgSender(), season, miners, operators, raiders);
+    }
+}

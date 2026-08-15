@@ -409,6 +409,25 @@
   {
     "inputs": [
       {
+        "internalType": "uint16",
+        "name": "tokenId",
+        "type": "uint16"
+      }
+    ],
+    "name": "alphaOf",
+    "outputs": [
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint16[]",
         "name": "tokenIds",
         "type": "uint16[]"
@@ -466,6 +485,11 @@
         "internalType": "uint40",
         "name": "lastSettled",
         "type": "uint40"
+      },
+      {
+        "internalType": "uint32",
+        "name": "patchSeason",
+        "type": "uint32"
       },
       {
         "internalType": "uint128",
@@ -592,6 +616,30 @@
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "tokenId",
+        "type": "uint16"
+      }
+    ],
+    "name": "guardOwner",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      },
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "lastAccUpdate",
     "outputs": [
@@ -652,6 +700,19 @@
     "type": "function"
   },
   {
+    "inputs": [
+      {
+        "internalType": "uint16[]",
+        "name": "tokenIds",
+        "type": "uint16[]"
+      }
+    ],
+    "name": "patch",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
     "inputs": [],
     "name": "paused",
     "outputs": [
@@ -704,6 +765,48 @@
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "tokenId",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint256",
+        "name": "bps",
+        "type": "uint256"
+      },
+      {
+        "internalType": "address",
+        "name": "raider",
+        "type": "address"
+      }
+    ],
+    "name": "raidDrain",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "taken",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "raidPost",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
       }
     ],
     "stateMutability": "view",
@@ -813,6 +916,73 @@
         "type": "uint16"
       }
     ],
+    "name": "rigOwner",
+    "outputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "rigSeasonMined",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "rigSeasonUptime",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "tokenId",
+        "type": "uint16"
+      }
+    ],
     "name": "rigState",
     "outputs": [
       {
@@ -901,12 +1071,76 @@
   {
     "inputs": [
       {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "seasonMinedTotal",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "seasonNow",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "name": "seasonUptimeTotal",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "bool",
         "name": "v",
         "type": "bool"
       }
     ],
     "name": "setPaused",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "v",
+        "type": "address"
+      }
+    ],
+    "name": "setRaidPost",
     "outputs": [],
     "stateMutability": "nonpayable",
     "type": "function"
@@ -921,6 +1155,30 @@
     ],
     "name": "setRescueEnabled",
     "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "tokenId",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint8",
+        "name": "amount",
+        "type": "uint8"
+      }
+    ],
+    "name": "spendEnergy",
+    "outputs": [
+      {
+        "internalType": "uint8",
+        "name": "left",
+        "type": "uint8"
+      }
+    ],
     "stateMutability": "nonpayable",
     "type": "function"
   },

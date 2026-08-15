@@ -48,7 +48,8 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
         address owner;        // 160
         uint16 tokenId;       //  16
         uint8 energy;         //   8
-        uint40 lastSettled;   //  40 -> 224
+        uint40 lastSettled;   //  40
+        uint32 patchSeason;   //  32 -> 256
         uint128 taxDebt;      // qbtcPerAlpha watermark
     }
 
@@ -113,6 +114,25 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
     mapping(uint256 => bool) public primed;
     uint256 public constant PRIMING_WINDOW = 1 days;
 
+    /**
+     * Per-season, per-NFT ladder scores.
+     *
+     * Keyed by season so nothing ever needs resetting, and scored per NFT
+     * rather than per wallet — splitting a fleet across wallets leaves both the
+     * scores and the totals identical, so Sybil gains nothing.
+     *
+     * `mined` is gross qBTC produced. `uptime` is seconds spent actually
+     * mining, unweighted by hashrate, so a well-tended but damaged rig can
+     * still top the Operators ladder while scoring poorly on Miners.
+     */
+    mapping(uint256 => mapping(uint256 => uint256)) public rigSeasonMined;
+    mapping(uint256 => mapping(uint256 => uint256)) public rigSeasonUptime;
+    mapping(uint256 => uint256) public seasonMinedTotal;
+    mapping(uint256 => uint256) public seasonUptimeTotal;
+
+    /// @dev authorised to drain a rig's settled yield on a successful raid
+    address public raidPost;
+
     bool public rescueEnabled;
 
     /* ----------------------------------------------------------- EVENTS */
@@ -166,6 +186,10 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
     modifier settles() {
         _updateAcc();
         _;
+    }
+
+    function seasonNow() public view returns (uint256) {
+        return Ops.seasonOf(block.timestamp - genesis);
     }
 
     /// @dev what one full-hashrate rig would earn in a day at the current rate
@@ -227,6 +251,7 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
                 tokenId: id,
                 energy: Ops.ENERGY_MAX,
                 lastSettled: uint40(block.timestamp),
+                patchSeason: uint32(seasonNow()),
                 taxDebt: uint128(qbtcPerAlpha)
             }));
             emit GuardStaked(account, id, alpha);
@@ -271,6 +296,15 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
                 net = gross - tax;
                 emit Mined(r.tokenId, gross, tax, net);
             }
+
+            // ladder scores for the season this settlement falls in
+            uint256 season = seasonNow();
+            if (gross > 0) {
+                rigSeasonMined[season][r.tokenId] += gross;
+                seasonMinedTotal[season] += gross;
+            }
+            rigSeasonUptime[season][r.tokenId] += fuelled;
+            seasonUptimeTotal[season] += fuelled;
 
             // durability only decays while actually mining
             _setDurability(r, Ops.decayed(r.durability, fuelled));
@@ -407,9 +441,14 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
         uint256 elapsed = block.timestamp - g.lastSettled;
         g.energy = Ops.energyAfter(g.energy, elapsed);
 
+        // energy gates the share; an unpatched rank erodes it further
         uint256 share = Ops.taxShareMultiplier(g.energy);
+        uint256 season = seasonNow();
+        uint256 rank = Ops.rankMultiplier(
+            season > g.patchSeason ? season - g.patchSeason : 0
+        );
         uint256 owed = alpha * (qbtcPerAlpha - g.taxDebt);
-        net = (owed * share) / Ops.PRECISION;
+        net = (((owed * share) / Ops.PRECISION) * rank) / Ops.PRECISION;
 
         // the portion an exhausted squirrel forfeits stays with the Drey
         if (owed > net) _payDrey(owed - net);
@@ -435,6 +474,81 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
 
         _burnFrom(_msgSender(), cost);
         if (owed > 0) _vest(_msgSender(), owed);
+    }
+
+    /**
+     * Restores a squirrel's defence rank. The qBTC spent is burned.
+     *
+     * Without this, rank erodes 10% of tax share per season down to a 50%
+     * floor, so holding a position requires reinvesting rather than only
+     * collecting.
+     */
+    function patch(uint16[] calldata tokenIds) external whenNotPaused nonReentrant settles {
+        uint256 daily = fullRateDailyYield();
+        uint256 season = seasonNow();
+        uint256 cost;
+        uint256 owed;
+
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            uint16 id = tokenIds[i];
+            owed += _settleGuard(id, _msgSender());
+            Guard storage g = drey[_alphaFor(id)][dreyIndices[id]];
+            cost += Ops.patchCost(season > g.patchSeason ? season - g.patchSeason : 0, daily);
+            g.patchSeason = uint32(season);
+        }
+
+        _burnFrom(_msgSender(), cost);
+        if (owed > 0) _vest(_msgSender(), owed);
+    }
+
+    /**
+     * Settles a rig and hands `bps` of the result to a successful raider.
+     *
+     * Restricted to the raid post so raid resolution — which is random and
+     * therefore commit-revealed — stays in one place, while the yield
+     * accounting it touches stays here.
+     */
+    function raidDrain(uint16 tokenId, uint256 bps, address raider)
+        external
+        nonReentrant
+        settles
+        returns (uint256 taken)
+    {
+        require(_msgSender() == raidPost, "Only the raid post");
+        require(bps <= 10000, "Share out of range");
+        Rig storage r = rigs[tokenId];
+        require(r.owner != address(0), "Rig not staked");
+
+        uint256 net = _settleRig(r);
+        taken = (net * bps) / 10000;
+        if (taken > 0) _vest(raider, taken);
+        if (net > taken) _vest(r.owner, net - taken);
+    }
+
+    function rigOwner(uint16 tokenId) external view returns (address) {
+        return rigs[tokenId].owner;
+    }
+
+    function guardOwner(uint16 tokenId) external view returns (address, uint8) {
+        Guard storage g = drey[_alphaFor(tokenId)][dreyIndices[tokenId]];
+        uint256 elapsed = block.timestamp - g.lastSettled;
+        return (g.owner, Ops.energyAfter(g.energy, elapsed));
+    }
+
+    /// @dev spends raid energy; only the raid post may call it
+    function spendEnergy(uint16 tokenId, uint8 amount) external returns (uint8 left) {
+        require(_msgSender() == raidPost, "Only the raid post");
+        Guard storage g = drey[_alphaFor(tokenId)][dreyIndices[tokenId]];
+        uint256 elapsed = block.timestamp - g.lastSettled;
+        uint8 energy = Ops.energyAfter(g.energy, elapsed);
+        require(energy >= amount, "Not enough acorn energy");
+        g.energy = energy - amount;
+        g.lastSettled = uint40(block.timestamp);
+        return g.energy;
+    }
+
+    function alphaOf(uint16 tokenId) external view returns (uint8) {
+        return _alphaFor(tokenId);
     }
 
     function _payDrey(uint256 amount) internal {
@@ -622,6 +736,8 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
     }
 
     /* ------------------------------------------------------------- ADMIN */
+
+    function setRaidPost(address v) external onlyOwner { raidPost = v; }
 
     function setRescueEnabled(bool v) external onlyOwner { rescueEnabled = v; }
 

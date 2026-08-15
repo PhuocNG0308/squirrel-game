@@ -1,0 +1,35 @@
+// SPDX-License-Identifier: MIT
+pragma hyperion >=0.0.1;
+
+/**
+ * The slice of QuantumFarm that the raid post and the season ledger need.
+ *
+ * Kept narrow deliberately: importing the farm itself would pull its whole
+ * bytecode into every satellite contract.
+ */
+interface IQuantumFarm {
+    function seasonNow() external view returns (uint256);
+
+    function fullRateDailyYield() external view returns (uint256);
+
+    function rigOwner(uint16 tokenId) external view returns (address);
+
+    /// @return owner and the squirrel's energy after decay
+    function guardOwner(uint16 tokenId) external view returns (address, uint8);
+
+    function alphaOf(uint16 tokenId) external view returns (uint8);
+
+    function spendEnergy(uint16 tokenId, uint8 amount) external returns (uint8);
+
+    function raidDrain(uint16 tokenId, uint256 bps, address raider)
+        external
+        returns (uint256);
+
+    function rigSeasonMined(uint256 season, uint256 tokenId) external view returns (uint256);
+
+    function rigSeasonUptime(uint256 season, uint256 tokenId) external view returns (uint256);
+
+    function seasonMinedTotal(uint256 season) external view returns (uint256);
+
+    function seasonUptimeTotal(uint256 season) external view returns (uint256);
+}
