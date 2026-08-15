@@ -1,0 +1,931 @@
+<title>Quantum Squirrels Field Manual</title>
+<style>
+  /* ---------- tokens: light is the base, both themes defined at token level ---------- */
+  :root {
+    --ground:      #EDF2F4;
+    --surface:     #FFFFFF;
+    --surface-2:   #F5F9FA;
+    --ink:         #0C1317;
+    --ink-2:       #35474F;
+    --muted:       #6A7E89;
+    --line:        #D2DEE3;
+    --line-soft:   #E3EBEE;
+
+    --cryo:        #0D7F90;
+    --cryo-ink:    #06525E;
+    --cryo-soft:   #D5EDF0;
+
+    --amber:       #B4681A;
+    --amber-soft:  #F6E4CE;
+
+    --crit:        #A93636;
+    --crit-soft:   #F6DCDC;
+
+    --gold:        #8E661C;
+    --gold-soft:   #F3E7CB;
+
+    --violet:      #5C4494;
+    --violet-soft: #E5E0F2;
+
+    --shadow: 0 1px 2px rgba(12,19,23,.06), 0 8px 24px -12px rgba(12,19,23,.18);
+
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", "Segoe UI Mono", Menlo, Consolas, monospace;
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:      #070C0F;
+      --surface:     #0F181D;
+      --surface-2:   #142127;
+      --ink:         #E3EEF2;
+      --ink-2:       #AEC4CD;
+      --muted:       #7C949F;
+      --line:        #213139;
+      --line-soft:   #182630;
+
+      --cryo:        #45C8D8;
+      --cryo-ink:    #8FE2ED;
+      --cryo-soft:   #0C2A31;
+
+      --amber:       #E4964A;
+      --amber-soft:  #33230F;
+
+      --crit:        #E87373;
+      --crit-soft:   #331818;
+
+      --gold:        #D8AC4C;
+      --gold-soft:   #2E2411;
+
+      --violet:      #A794E0;
+      --violet-soft: #1E1935;
+
+      --shadow: 0 1px 2px rgba(0,0,0,.5), 0 10px 28px -14px rgba(0,0,0,.7);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:      #070C0F;
+    --surface:     #0F181D;
+    --surface-2:   #142127;
+    --ink:         #E3EEF2;
+    --ink-2:       #AEC4CD;
+    --muted:       #7C949F;
+    --line:        #213139;
+    --line-soft:   #182630;
+
+    --cryo:        #45C8D8;
+    --cryo-ink:    #8FE2ED;
+    --cryo-soft:   #0C2A31;
+
+    --amber:       #E4964A;
+    --amber-soft:  #33230F;
+
+    --crit:        #E87373;
+    --crit-soft:   #331818;
+
+    --gold:        #D8AC4C;
+    --gold-soft:   #2E2411;
+
+    --violet:      #A794E0;
+    --violet-soft: #1E1935;
+
+    --shadow: 0 1px 2px rgba(0,0,0,.5), 0 10px 28px -14px rgba(0,0,0,.7);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ---------- shell ---------- */
+  .shell {
+    display: grid;
+    grid-template-columns: 232px minmax(0, 1fr);
+    gap: 56px;
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 0 32px 120px;
+  }
+  @media (max-width: 900px) {
+    .shell { grid-template-columns: minmax(0,1fr); gap: 0; padding: 0 20px 80px; }
+    .rail { display: none; }
+  }
+
+  /* ---------- left rail ---------- */
+  .rail { padding-top: 56px; }
+  .rail-inner { position: sticky; top: 32px; display: flex; flex-direction: column; gap: 4px; }
+  .rail-title {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: .18em;
+    text-transform: uppercase;
+    color: var(--muted);
+    padding: 0 0 12px 12px;
+  }
+  .rail a {
+    display: flex;
+    gap: 10px;
+    align-items: baseline;
+    font-size: 13.5px;
+    color: var(--ink-2);
+    text-decoration: none;
+    padding: 5px 12px;
+    border-left: 2px solid var(--line);
+    transition: color .15s, border-color .15s;
+  }
+  .rail a:hover, .rail a:focus-visible { color: var(--cryo); border-left-color: var(--cryo); }
+  .rail a span {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  main { padding-top: 56px; min-width: 0; }
+
+  /* ---------- masthead ---------- */
+  .masthead { padding-bottom: 40px; border-bottom: 1px solid var(--line); margin-bottom: 48px; }
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: 10.5px;
+    letter-spacing: .2em;
+    text-transform: uppercase;
+    color: var(--cryo);
+    margin: 0 0 18px;
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+  }
+  .eyebrow b { color: var(--muted); font-weight: 400; }
+  h1 {
+    font-family: var(--mono);
+    font-size: clamp(30px, 5.2vw, 50px);
+    line-height: 1.04;
+    letter-spacing: -.03em;
+    font-weight: 700;
+    margin: 0 0 20px;
+    text-wrap: balance;
+  }
+  .standfirst {
+    font-size: clamp(16.5px, 2vw, 19px);
+    line-height: 1.58;
+    color: var(--ink-2);
+    max-width: 62ch;
+    margin: 0;
+  }
+  .thesis {
+    margin: 32px 0 0;
+    padding: 20px 24px;
+    background: var(--cryo-soft);
+    border-left: 3px solid var(--cryo);
+    border-radius: 0 6px 6px 0;
+    font-size: 17px;
+    color: var(--cryo-ink);
+  }
+  .thesis strong { font-weight: 700; }
+
+  /* ---------- sections ---------- */
+  section { margin-bottom: 68px; scroll-margin-top: 24px; }
+  .sec-head { display: flex; gap: 14px; align-items: baseline; margin-bottom: 8px; }
+  .sec-num {
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--cryo);
+    letter-spacing: .1em;
+    font-variant-numeric: tabular-nums;
+    padding-top: 6px;
+  }
+  h2 {
+    font-family: var(--mono);
+    font-size: clamp(19px, 2.6vw, 25px);
+    letter-spacing: -.018em;
+    font-weight: 700;
+    margin: 0;
+    text-wrap: balance;
+  }
+  h3 {
+    font-family: var(--sans);
+    font-size: 16.5px;
+    font-weight: 650;
+    letter-spacing: -.005em;
+    margin: 34px 0 10px;
+  }
+  p { margin: 0 0 15px; max-width: 68ch; }
+  .lede { color: var(--ink-2); max-width: 68ch; margin-bottom: 24px; }
+  ul, ol { max-width: 68ch; padding-left: 20px; margin: 0 0 15px; }
+  li { margin-bottom: 7px; }
+  strong { font-weight: 650; }
+  code {
+    font-family: var(--mono);
+    font-size: .875em;
+    background: var(--surface-2);
+    border: 1px solid var(--line-soft);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+  a { color: var(--cryo); }
+
+  /* ---------- tables ---------- */
+  .tw { overflow-x: auto; margin: 22px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: 14px; }
+  th, td { text-align: left; padding: 10px 14px; border-bottom: 1px solid var(--line-soft); white-space: nowrap; }
+  thead th {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: .13em;
+    text-transform: uppercase;
+    color: var(--muted);
+    font-weight: 500;
+    background: var(--surface-2);
+    border-bottom: 1px solid var(--line);
+  }
+  tbody tr:last-child td { border-bottom: none; }
+  .num { text-align: right; font-family: var(--mono); font-variant-numeric: tabular-nums; }
+  td.wrap { white-space: normal; min-width: 220px; }
+  tfoot td { font-weight: 650; background: var(--surface-2); border-top: 1px solid var(--line); }
+
+  /* thermal stripe: encodes operating state, the game's core axis */
+  .st { border-left: 3px solid var(--line); }
+  .st-ok   { border-left-color: var(--cryo); }
+  .st-warm { border-left-color: var(--amber); }
+  .st-hot  { border-left-color: var(--crit); }
+  .st-dead { border-left-color: var(--muted); }
+
+  .tag {
+    display: inline-block;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: .09em;
+    text-transform: uppercase;
+    padding: 2px 7px;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+  .t-ok   { background: var(--cryo-soft);   color: var(--cryo-ink); }
+  .t-warm { background: var(--amber-soft);  color: var(--amber); }
+  .t-hot  { background: var(--crit-soft);   color: var(--crit); }
+  .t-gold { background: var(--gold-soft);   color: var(--gold); }
+  .t-vio  { background: var(--violet-soft); color: var(--violet); }
+  .t-mute { background: var(--surface-2);   color: var(--muted); border: 1px solid var(--line); }
+
+  /* ---------- allocation bar ---------- */
+  .alloc { display: flex; height: 34px; border-radius: 6px; overflow: hidden; margin: 24px 0 14px; border: 1px solid var(--line); }
+  .alloc div { display: flex; align-items: center; justify-content: center; font-family: var(--mono); font-size: 10.5px; color: #fff; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 22px; font-size: 13px; color: var(--ink-2); margin-bottom: 8px; }
+  .legend span { display: flex; align-items: center; gap: 7px; }
+  .dot { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+
+  /* ---------- emission chart ---------- */
+  .chart { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; align-items: end; height: 172px; margin: 26px 0 10px; }
+  .bar { display: flex; flex-direction: column; justify-content: flex-end; height: 100%; gap: 2px; }
+  .bar i { display: block; border-radius: 2px 2px 0 0; }
+  .bar .b1 { background: var(--cryo); }
+  .bar .b2 { background: var(--violet); }
+  .bar .b3 { background: var(--gold); }
+  .xaxis { display: grid; grid-template-columns: repeat(8, 1fr); gap: 8px; font-family: var(--mono); font-size: 10px; color: var(--muted); text-align: center; }
+
+  /* ---------- panels ---------- */
+  .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 22px 24px; margin: 24px 0; box-shadow: var(--shadow); }
+  .panel h4 { font-family: var(--mono); font-size: 11px; letter-spacing: .13em; text-transform: uppercase; color: var(--muted); margin: 0 0 12px; font-weight: 500; }
+  .formula { font-family: var(--mono); font-size: 14px; background: var(--surface-2); border: 1px solid var(--line-soft); border-radius: 6px; padding: 14px 16px; margin: 16px 0; overflow-x: auto; color: var(--ink); }
+
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(268px, 1fr)); gap: 16px; margin: 24px 0; }
+  .card { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 18px 20px; }
+  .card .k { font-family: var(--mono); font-size: 10px; letter-spacing: .13em; text-transform: uppercase; color: var(--muted); margin-bottom: 8px; }
+  .card .v { font-family: var(--mono); font-size: 25px; font-weight: 700; letter-spacing: -.02em; margin-bottom: 6px; font-variant-numeric: tabular-nums; }
+  .card p { font-size: 13.5px; color: var(--ink-2); margin: 0; }
+
+  .flag { border-left: 3px solid var(--amber); background: var(--amber-soft); padding: 16px 20px; border-radius: 0 6px 6px 0; margin: 24px 0; }
+  .flag p { margin: 0; color: var(--ink); font-size: 14.5px; }
+  .flag p + p { margin-top: 10px; }
+  .flag .k { font-family: var(--mono); font-size: 10px; letter-spacing: .13em; text-transform: uppercase; color: var(--amber); margin-bottom: 7px; }
+
+  /* ---------- loop diagram ---------- */
+  .loop { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin: 26px 0; }
+  .step { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 16px; position: relative; }
+  .step .n { font-family: var(--mono); font-size: 10px; color: var(--cryo); letter-spacing: .12em; margin-bottom: 8px; }
+  .step h5 { margin: 0 0 6px; font-size: 14.5px; font-weight: 650; }
+  .step p { margin: 0; font-size: 12.5px; color: var(--ink-2); line-height: 1.5; }
+
+  footer { border-top: 1px solid var(--line); padding-top: 26px; color: var(--muted); font-size: 13px; max-width: 68ch; }
+  footer p { max-width: none; }
+
+  :focus-visible { outline: 2px solid var(--cryo); outline-offset: 2px; border-radius: 2px; }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div class="shell">
+  <nav class="rail">
+    <div class="rail-inner">
+      <div class="rail-title">Contents</div>
+      <a href="#thesis"><span>01</span> Design thesis</a>
+      <a href="#supply"><span>02</span> Supply &amp; allocation</a>
+      <a href="#emission"><span>03</span> Emission curve</a>
+      <a href="#tracks"><span>04</span> Three reward tracks</a>
+      <a href="#rigs"><span>05</span> Rig operations</a>
+      <a href="#squirrels"><span>06</span> Squirrel operations</a>
+      <a href="#raids"><span>07</span> Raids &amp; defence</a>
+      <a href="#retention"><span>08</span> Retention systems</a>
+      <a href="#seasons"><span>09</span> Seasons &amp; ladders</a>
+      <a href="#vesting"><span>10</span> Claim vesting</a>
+      <a href="#ledger"><span>11</span> Anti-Ponzi ledger</a>
+      <a href="#open"><span>12</span> What testnet proves</a>
+      <a href="#params"><span>13</span> Parameters</a>
+    </div>
+  </nav>
+
+  <main>
+    <header class="masthead">
+      <p class="eyebrow">Game Design Document <b>/</b> Quantum Squirrels vs Quantum Rigs <b>/</b> QRL Zond testnet v2</p>
+      <h1>Quantum Squirrels Field Manual</h1>
+      <p class="standfirst">
+        A mining economy where the machines wear out, the coolant runs dry, and the
+        squirrels in the canopy are paid to take what you did not defend. This
+        manual specifies the sustainable-operations layer: emission, sinks,
+        progression, and the retention systems that keep a testnet populated
+        long enough to learn something from it.
+      </p>
+      <div class="thesis">
+        <strong>A Ponzi pays you for depositing. A game pays you for playing.</strong>
+        Every design decision below is an attempt to move reward from the first
+        column into the second.
+      </div>
+    </header>
+
+    <section id="thesis">
+      <div class="sec-head"><div class="sec-num">01</div><h2>Design thesis</h2></div>
+      <p class="lede">
+        The previous economy failed a simple test. Its token sinks — repair, coolant,
+        acorns — were all denominated in qBTC, so burning them destroyed a claim
+        without adding any backing. Supply fell; nothing was worth more.
+      </p>
+      <p>
+        Burning is supply management, not value creation. What actually reduces
+        dependence on new entrants is <strong>changing who is eligible to earn</strong>.
+        Emission that scales with deposit size pays the largest wallet by
+        construction — that is the Ponzi shape, whatever the sinks look like.
+        Emission gated behind attention, skill and ranking pays the most engaged
+        player instead, and an engaged player is one who is still here next month.
+      </p>
+      <p>
+        So the split below is the core economic claim of this document: half of all
+        emission still flows to mining, but <strong>none of it flows to idle
+        capital</strong>, and a further 40% is reachable only by playing.
+      </p>
+      <div class="grid2">
+        <div class="card">
+          <div class="k">Capital-weighted</div>
+          <div class="v">50%</div>
+          <p>Mining yield — and even this pays nothing without fuel and maintenance.</p>
+        </div>
+        <div class="card">
+          <div class="k">Activity &amp; rank gated</div>
+          <div class="v">40%</div>
+          <p>Season ladders and quests. Unreachable by depositing alone.</p>
+        </div>
+        <div class="card">
+          <div class="k">Never emitted to players</div>
+          <div class="v">10%</div>
+          <p>AMM liquidity and operations reserve.</p>
+        </div>
+      </div>
+    </section>
+
+    <section id="supply">
+      <div class="sec-head"><div class="sec-num">02</div><h2>Supply &amp; allocation</h2></div>
+      <p class="lede">
+        Total supply is fixed at <strong>21,000,000 qBTC</strong>. It is divided by
+        purpose before it is divided by time, so no single mechanism can drain the
+        whole cap.
+      </p>
+
+      <div class="alloc">
+        <div style="width:50%;background:var(--cryo)">50% MINING</div>
+        <div style="width:25%;background:var(--violet)">25% SEASONS</div>
+        <div style="width:15%;background:var(--gold)">15% QUESTS</div>
+        <div style="width:5%;background:var(--muted)">5%</div>
+        <div style="width:5%;background:var(--ink-2)">5%</div>
+      </div>
+      <div class="legend">
+        <span><i class="dot" style="background:var(--cryo)"></i> Mining yield</span>
+        <span><i class="dot" style="background:var(--violet)"></i> Season pools</span>
+        <span><i class="dot" style="background:var(--gold)"></i> Quests</span>
+        <span><i class="dot" style="background:var(--muted)"></i> AMM liquidity</span>
+        <span><i class="dot" style="background:var(--ink-2)"></i> Reserve</span>
+      </div>
+
+      <div class="tw">
+        <table>
+          <thead>
+            <tr><th>Pool</th><th class="num">qBTC</th><th class="num">Share</th><th>Released by</th><th class="wrap">Notes</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>Rig mining yield</td><td class="num">10,500,000</td><td class="num">50%</td><td><span class="tag t-ok">Upkeep</span></td><td class="wrap">Pro-rata by live hashrate; zero without coolant</td></tr>
+            <tr><td>Season reward pools</td><td class="num">5,250,000</td><td class="num">25%</td><td><span class="tag t-vio">Rank</span></td><td class="wrap">Ladder placement, not stake size</td></tr>
+            <tr><td>Quests &amp; achievements</td><td class="num">3,150,000</td><td class="num">15%</td><td><span class="tag t-gold">Activity</span></td><td class="wrap">Finite: 60 seasons, then exhausted</td></tr>
+            <tr><td>AMM liquidity bootstrap</td><td class="num">1,050,000</td><td class="num">5%</td><td><span class="tag t-mute">Locked</span></td><td class="wrap">Paired with treasury QRL at pool launch</td></tr>
+            <tr><td>Treasury / ops reserve</td><td class="num">1,050,000</td><td class="num">5%</td><td><span class="tag t-mute">Vested</span></td><td class="wrap">Linear over 24 months</td></tr>
+          </tbody>
+          <tfoot><tr><td>Total</td><td class="num">21,000,000</td><td class="num">100%</td><td></td><td></td></tr></tfoot>
+        </table>
+      </div>
+    </section>
+
+    <section id="emission">
+      <div class="sec-head"><div class="sec-num">03</div><h2>Emission curve</h2></div>
+      <p class="lede">
+        Mining and season pools decay <strong>4% per 30-day season</strong>, a geometric
+        series that converges on its allocation without ever exhausting it. Quests pay
+        flat across 60 seasons and then stop.
+      </p>
+      <p>
+        A halving schedule was rejected: its first epoch necessarily emits half the
+        cap, front-loading the economy into exactly the early dump that kills these
+        games. A gentler per-season decay spreads the same total over a usable life.
+      </p>
+
+      <div class="chart" role="img" aria-label="Annual emission by pool, years one through eight, declining from 6.73 million to 190 thousand qBTC">
+        <div class="bar"><i class="b3" style="height:15px"></i><i class="b2" style="height:48px"></i><i class="b1" style="height:97px"></i></div>
+        <div class="bar"><i class="b3" style="height:15px"></i><i class="b2" style="height:30px"></i><i class="b1" style="height:59px"></i></div>
+        <div class="bar"><i class="b3" style="height:15px"></i><i class="b2" style="height:18px"></i><i class="b1" style="height:36px"></i></div>
+        <div class="bar"><i class="b3" style="height:15px"></i><i class="b2" style="height:11px"></i><i class="b1" style="height:22px"></i></div>
+        <div class="bar"><i class="b3" style="height:15px"></i><i class="b2" style="height:7px"></i><i class="b1" style="height:14px"></i></div>
+        <div class="bar"><i class="b2" style="height:4px"></i><i class="b1" style="height:9px"></i></div>
+        <div class="bar"><i class="b2" style="height:2px"></i><i class="b1" style="height:5px"></i></div>
+        <div class="bar"><i class="b2" style="height:2px"></i><i class="b1" style="height:3px"></i></div>
+      </div>
+      <div class="xaxis"><div>Y1</div><div>Y2</div><div>Y3</div><div>Y4</div><div>Y5</div><div>Y6</div><div>Y7</div><div>Y8</div></div>
+
+      <div class="tw">
+        <table>
+          <thead>
+            <tr><th>Year</th><th class="num">Mining</th><th class="num">Seasons</th><th class="num">Quests</th><th class="num">Total</th><th class="num">Cap issued</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>1</td><td class="num">4,066,548</td><td class="num">2,033,274</td><td class="num">630,000</td><td class="num">6,729,821</td><td class="num">32.0%</td></tr>
+            <tr><td>2</td><td class="num">2,491,613</td><td class="num">1,245,807</td><td class="num">630,000</td><td class="num">4,367,420</td><td class="num">52.8%</td></tr>
+            <tr><td>3</td><td class="num">1,526,636</td><td class="num">763,318</td><td class="num">630,000</td><td class="num">2,919,954</td><td class="num">66.7%</td></tr>
+            <tr><td>4</td><td class="num">935,385</td><td class="num">467,692</td><td class="num">630,000</td><td class="num">2,033,077</td><td class="num">76.4%</td></tr>
+            <tr><td>5</td><td class="num">573,119</td><td class="num">286,560</td><td class="num">630,000</td><td class="num">1,489,679</td><td class="num">83.5%</td></tr>
+            <tr><td>6</td><td class="num">373,378</td><td class="num">186,689</td><td class="num">0</td><td class="num">560,066</td><td class="num">86.2%</td></tr>
+            <tr><td>7</td><td class="num">206,550</td><td class="num">103,275</td><td class="num">0</td><td class="num">309,825</td><td class="num">87.7%</td></tr>
+            <tr><td>8</td><td class="num">126,555</td><td class="num">63,278</td><td class="num">0</td><td class="num">189,833</td><td class="num">88.6%</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Circulating supply after sinks</h3>
+      <p>
+        Gen 1 minting burns 15,750,000 qBTC across the life of the collection — a sink
+        larger than the entire mining pool. Upkeep burns 38% of mining yield;
+        progression burns a further 12% of all emission.
+      </p>
+      <div class="tw">
+        <table>
+          <thead>
+            <tr><th>Year</th><th class="num">Emitted</th><th class="num">Burned</th><th class="num">Circulating</th><th class="num">Net inflation</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>1</td><td class="num">6,729,821</td><td class="num">4,708,304</td><td class="num">2,021,517</td><td class="num">—</td></tr>
+            <tr><td>2</td><td class="num">4,367,420</td><td class="num">2,999,500</td><td class="num">3,389,437</td><td class="num">68%</td></tr>
+            <tr><td>3</td><td class="num">2,919,954</td><td class="num">1,952,500</td><td class="num">4,356,891</td><td class="num">29%</td></tr>
+            <tr><td>4</td><td class="num">2,033,077</td><td class="num">1,310,992</td><td class="num">5,078,975</td><td class="num">17%</td></tr>
+            <tr><td>5</td><td class="num">1,489,679</td><td class="num">917,934</td><td class="num">5,650,720</td><td class="num">11%</td></tr>
+            <tr><td>6</td><td class="num">560,066</td><td class="num">405,115</td><td class="num">5,805,671</td><td class="num">3%</td></tr>
+            <tr><td>7</td><td class="num">309,825</td><td class="num">224,107</td><td class="num">5,891,390</td><td class="num">1%</td></tr>
+            <tr><td>8</td><td class="num">189,833</td><td class="num">137,313</td><td class="num">5,943,910</td><td class="num">1%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Peak circulating supply settles near <strong>5.94M — 28% of the cap</strong>.
+        The remaining 72% is either burned on the way through or never issued.
+      </p>
+    </section>
+
+    <section id="tracks">
+      <div class="sec-head"><div class="sec-num">04</div><h2>Three reward tracks</h2></div>
+      <p class="lede">
+        Each track answers a different question, and a player who ignores two of them
+        leaves most of the economy on the table.
+      </p>
+      <div class="tw">
+        <table>
+          <thead>
+            <tr><th>Track</th><th>Answers</th><th>Scales with</th><th class="wrap">Whale advantage</th></tr>
+          </thead>
+          <tbody>
+            <tr class="st st-ok"><td><strong>Mining</strong></td><td>Did you maintain your machines?</td><td>Live hashrate</td><td class="wrap">Linear, but so is the upkeep bill</td></tr>
+            <tr class="st st-warm"><td><strong>Seasons</strong></td><td>Did you outperform other players?</td><td>Ladder rank</td><td class="wrap">None — top rank pays a fixed share</td></tr>
+            <tr class="st st-hot"><td><strong>Quests</strong></td><td>Did you engage with the systems?</td><td>Completion</td><td class="wrap">None — one-time per account</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Mining is deliberately the least interesting track. It is the base load, it
+        demands daily attention to earn anything at all, and it is the only place
+        where owning more hardware helps.
+      </p>
+    </section>
+
+    <section id="rigs">
+      <div class="sec-head"><div class="sec-num">05</div><h2>Rig operations</h2></div>
+      <p class="lede">
+        A Quantum Rig is a machine, not a savings account. It degrades, it needs
+        coolant, and it will destroy itself if run into the ground.
+      </p>
+
+      <h3>Durability</h3>
+      <p>
+        Every rig starts at 100 points and loses <strong>5 per day of mining</strong>.
+        Hashrate falls in bands, so decline is felt in steps rather than as a slow
+        fade — a rig crossing into Overheating is a visible event worth reacting to.
+      </p>
+      <div class="tw">
+        <table>
+          <thead>
+            <tr><th>Durability</th><th>State</th><th class="num">Hashrate</th><th class="wrap">Consequence</th></tr>
+          </thead>
+          <tbody>
+            <tr class="st st-ok"><td>75–100</td><td><span class="tag t-ok">Optimal</span></td><td class="num">100%</td><td class="wrap">Nominal operation</td></tr>
+            <tr class="st st-warm"><td>50–74</td><td><span class="tag t-warm">Overheating</span></td><td class="num">80%</td><td class="wrap">Coolant demand unchanged, output down</td></tr>
+            <tr class="st st-warm"><td>20–49</td><td><span class="tag t-warm">Damaged</span></td><td class="num">50%</td><td class="wrap">Repair cost now material</td></tr>
+            <tr class="st st-hot"><td>1–19</td><td><span class="tag t-hot">Critical</span></td><td class="num">20%</td><td class="wrap">10% chance per day of permanent loss; repairs cost 1.5×</td></tr>
+            <tr class="st st-dead"><td>0</td><td><span class="tag t-mute">Shutdown</span></td><td class="num">0%</td><td class="wrap">Mines nothing; revivable at full cost</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="flag">
+        <div class="k">Fairness requirement</div>
+        <p>Destroying an NFT on a random roll must use commit–reveal. Without it a
+        player wraps the call in a contract, reads the outcome, and reverts whenever
+        the rig would have exploded — turning a 10% risk into zero.</p>
+      </div>
+
+      <h3>Repair</h3>
+      <p>
+        Repair is priced against what the rig would earn in a day at full durability —
+        never against its actual recent output. Pricing off actual output would make
+        repair cost collapse toward zero exactly when a rig is most broken, so a
+        player could let a machine die and revive it for nothing.
+      </p>
+      <div class="formula">cost = points × 0.05 × fullRateDailyYield × penalty + 0.02 × fullRateDailyYield<br>penalty = 1.5 when durability ≤ 19, otherwise 1</div>
+      <p>
+        The trailing flat term is a <strong>service fee per repair action</strong>, and it
+        exists to create the maintenance decision. Without it, cost is purely linear
+        in points, so topping up five points daily and repairing thirty points every
+        sixth day cost precisely the same amount and there is nothing to decide.
+      </p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Strategy</th><th>Repairs at</th><th class="num">Net per rig, 360 d</th><th class="num">Survival</th></tr></thead>
+          <tbody>
+            <tr class="st st-ok"><td>Balanced</td><td>74 points</td><td class="num">15,893</td><td class="num">100%</td></tr>
+            <tr class="st st-ok"><td>Diligent</td><td>Daily</td><td class="num">15,309</td><td class="num">100%</td></tr>
+            <tr class="st st-hot"><td>Squeezer</td><td>Critical</td><td class="num">3,523</td><td class="num">21%</td></tr>
+            <tr class="st st-dead"><td>Abandoned</td><td>Never</td><td class="num">0</td><td class="num">100%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Balanced narrowly beats Diligent: repairing less often saves service fees,
+        just enough to offset the hashrate lost while Overheating. That margin is the
+        knob — widening the service fee pushes players toward bulk repairs, narrowing
+        it rewards daily attention.
+      </p>
+
+      <h3>Coolant</h3>
+      <p>
+        A rig consumes coolant continuously and stops the moment its fuel window
+        lapses, whatever its durability. The fee is <strong>10% of the yield actually
+        produced</strong>, never a fixed token amount — a fixed fee becomes unpayable
+        precisely when per-rig output falls, which is how these economies enter a
+        death spiral.
+      </p>
+      <p>
+        The 24-hour fuel window is also what makes the contract tractable: it bounds
+        how long a rig can go unsettled, so hashrate accounting never has to sweep
+        every machine on chain.
+      </p>
+    </section>
+
+    <section id="squirrels">
+      <div class="sec-head"><div class="sec-num">06</div><h2>Squirrel operations</h2></div>
+      <p class="lede">
+        Squirrels are a security force on a payroll, not landlords collecting rent.
+        An unfed squirrel earns nothing.
+      </p>
+
+      <h3>Acorn energy</h3>
+      <p>
+        Each squirrel holds 100 energy and burns <strong>10 per day</strong> on watch.
+        Energy is restored by burning qBTC on Energy Acorns.
+      </p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Energy</th><th>State</th><th class="num">Tax share</th><th class="wrap">Raiding</th></tr></thead>
+          <tbody>
+            <tr class="st st-ok"><td>50–100</td><td><span class="tag t-ok">Alert</span></td><td class="num">100%</td><td class="wrap">Available</td></tr>
+            <tr class="st st-warm"><td>20–49</td><td><span class="tag t-warm">Exhausted</span></td><td class="num">50%</td><td class="wrap">Unavailable</td></tr>
+            <tr class="st st-dead"><td>0–19</td><td><span class="tag t-mute">Asleep</span></td><td class="num">0%</td><td class="wrap">Unavailable</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Defence rank &amp; algorithmic decay</h3>
+      <p>
+        Tier fixes a squirrel's alpha; <strong>D-Rank</strong> is a separate, mutable
+        rating that decays one step at the close of every season as rig cryptography
+        advances. Holding rank requires burning qBTC on a signature patch.
+      </p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Tier</th><th>Artwork</th><th class="num">Share of squirrels</th><th class="num">Alpha</th></tr></thead>
+          <tbody>
+            <tr class="st st-hot"><td><span class="tag t-gold">Tier 3</span></td><td>Gilded sovereign</td><td class="num">10%</td><td class="num">8</td></tr>
+            <tr class="st st-warm"><td><span class="tag t-vio">Tier 2</span></td><td>Violet operative</td><td class="num">30%</td><td class="num">7</td></tr>
+            <tr class="st st-ok"><td><span class="tag t-ok">Tier 1</span></td><td>Green scout</td><td class="num">60%</td><td class="num">6</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="flag">
+        <div class="k">Implementation constraint</div>
+        <p>Rank decay must be applied as a multiplier at claim time. The staking
+        structure buckets squirrels by alpha, so literally lowering a rank would
+        require migrating every staked squirrel between buckets — unbounded work that
+        cannot fit in one transaction.</p>
+      </div>
+    </section>
+
+    <section id="raids">
+      <div class="sec-head"><div class="sec-num">07</div><h2>Raids &amp; defence</h2></div>
+      <p class="lede">
+        The passive 20% tax stays, but it is the floor of a squirrel's income rather
+        than the whole of it. Raiding is where squirrel players actually play.
+      </p>
+      <p>
+        A squirrel spends 15 energy to raid a named rig. Success is weighted by alpha
+        against the target's <strong>Firewall</strong> rating, and a successful raid takes a
+        share of that rig's unclaimed yield. Failure costs the energy and nothing else.
+      </p>
+      <div class="formula">P(success) = alpha / (alpha + firewall + 4)<br>stolen = min(pendingYield × 0.25, raidCap)</div>
+      <p>
+        Rig owners answer by burning qBTC on Firewall upgrades, which decay one point
+        per season. That exchange is the point: it is a standing sink funded by both
+        sides of the game, and it converts squirrel income from rent into something
+        earned.
+      </p>
+      <div class="grid2">
+        <div class="card">
+          <div class="k">Raid cost</div>
+          <div class="v">15</div>
+          <p>Energy per attempt. Roughly one raid per day at full charge.</p>
+        </div>
+        <div class="card">
+          <div class="k">Maximum theft</div>
+          <div class="v">25%</div>
+          <p>Of the target's unclaimed yield. Claiming often is a real defence.</p>
+        </div>
+        <div class="card">
+          <div class="k">Firewall decay</div>
+          <div class="v">1/season</div>
+          <p>Defence is rented, never owned outright.</p>
+        </div>
+      </div>
+      <div class="flag">
+        <div class="k">Fairness requirement</div>
+        <p>Raid resolution is random and therefore commit–reveal, on the same
+        two-block pattern as minting and unstaking.</p>
+      </div>
+    </section>
+
+    <section id="retention">
+      <div class="sec-head"><div class="sec-num">08</div><h2>Retention systems</h2></div>
+      <p class="lede">
+        A testnet is only informative if people keep showing up. These systems exist
+        to make the second week more interesting than the first.
+      </p>
+
+      <h3>The daily loop</h3>
+      <div class="loop">
+        <div class="step"><div class="n">STEP 1</div><h5>Read the panel</h5><p>Durability, coolant window, energy, and any raids taken against you overnight.</p></div>
+        <div class="step"><div class="n">STEP 2</div><h5>Service the fleet</h5><p>Refuel, repair, feed. One bulk transaction for the whole roster.</p></div>
+        <div class="step"><div class="n">STEP 3</div><h5>Act</h5><p>Raid a rig, reinforce a firewall, or bank the difference.</p></div>
+        <div class="step"><div class="n">STEP 4</div><h5>Clear quests</h5><p>Three dailies, refreshed on the season clock.</p></div>
+      </div>
+
+      <h3>Uptime streak</h3>
+      <p>
+        Every consecutive day ending with all rigs fuelled and above 75% durability
+        adds <strong>1% hashrate, capped at 25%</strong>. A missed day resets it to zero.
+      </p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Streak</th><th class="num">Bonus</th><th class="wrap">Design intent</th></tr></thead>
+          <tbody>
+            <tr class="st st-ok"><td>7 days</td><td class="num">+7%</td><td class="wrap">Noticeable within the first week</td></tr>
+            <tr class="st st-ok"><td>25 days</td><td class="num">+25%</td><td class="wrap">Ceiling reached inside one season</td></tr>
+            <tr class="st st-warm"><td>Missed day</td><td class="num">0%</td><td class="wrap">A setback, not a reason to quit</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        The cap matters as much as the bonus. An uncapped streak compounds into
+        exactly the permanent early-player advantage that seasonal decay exists to
+        prevent.
+      </p>
+
+      <h3>Quests</h3>
+      <p>
+        Quests are the only track that pays a brand-new player immediately, which is
+        what carries someone through their first empty-handed week.
+      </p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Cadence</th><th class="wrap">Examples</th><th class="num">Share of pool</th></tr></thead>
+          <tbody>
+            <tr class="st st-ok"><td>Daily</td><td class="wrap">Refuel every rig · complete one raid · finish the day above 75%</td><td class="num">45%</td></tr>
+            <tr class="st st-warm"><td>Weekly</td><td class="wrap">Survive seven days with no shutdown · steal from three distinct rigs</td><td class="num">30%</td></tr>
+            <tr class="st st-hot"><td>Achievement</td><td class="wrap">First Tier 3 squirrel · fuse a Gen 2 rig · burn 10,000 qBTC</td><td class="num">25%</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>Fusion</h3>
+      <p>
+        Two rigs of the same generation can be burned into one of the next, carrying
+        a higher base hashrate and a slower decay rate. This is the endgame sink:
+        it gives large holders something to spend on, removes NFTs from supply, and
+        gives low-tier tokens a floor by making them fusion feedstock.
+      </p>
+    </section>
+
+    <section id="seasons">
+      <div class="sec-head"><div class="sec-num">09</div><h2>Seasons &amp; ladders</h2></div>
+      <p class="lede">
+        Seasons run 30 days. Each closes with a rank decay, a leaderboard payout, and
+        a fresh set of quests — a scheduled reason to return.
+      </p>
+      <p>
+        Season 1 pays out <strong>210,000 qBTC</strong> across three ladders. Placement is
+        by rank band, not by stake, so the top player takes a fixed 10% of a ladder
+        rather than a multiple of what they deposited.
+      </p>
+      <div class="tw">
+        <table>
+          <thead>
+            <tr><th>Rank band</th><th class="num">Top Miners<br>84,000</th><th class="num">Top Raiders<br>73,500</th><th class="num">Top Operators<br>52,500</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>1st</td><td class="num">8,400</td><td class="num">7,350</td><td class="num">5,250</td></tr>
+            <tr><td>2nd–3rd</td><td class="num">10,080</td><td class="num">8,820</td><td class="num">6,300</td></tr>
+            <tr><td>4th–10th</td><td class="num">15,120</td><td class="num">13,230</td><td class="num">9,450</td></tr>
+            <tr><td>11th–50th</td><td class="num">21,000</td><td class="num">18,375</td><td class="num">13,125</td></tr>
+            <tr><td>51st–200th</td><td class="num">16,800</td><td class="num">14,700</td><td class="num">10,500</td></tr>
+            <tr><td>201st–1000th</td><td class="num">12,600</td><td class="num">11,025</td><td class="num">7,875</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        The ladders are chosen so that different holdings win different races.
+        <strong>Top Operators</strong> ranks by uptime percentage, which gets
+        <em>harder</em> with scale — a player with three rigs can hold 100% uptime far
+        more easily than a whale running two hundred.
+      </p>
+    </section>
+
+    <section id="vesting">
+      <div class="sec-head"><div class="sec-num">10</div><h2>Claim vesting</h2></div>
+      <p class="lede">
+        Claimed qBTC vests linearly over seven days. Taking it early forfeits the
+        unvested share, which is burned.
+      </p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Withdrawn after</th><th class="num">Received</th><th class="num">Burned</th></tr></thead>
+          <tbody>
+            <tr class="st st-hot"><td>Immediately</td><td class="num">0%</td><td class="num">100%</td></tr>
+            <tr class="st st-hot"><td>1 day</td><td class="num">14%</td><td class="num">86%</td></tr>
+            <tr class="st st-warm"><td>3 days</td><td class="num">43%</td><td class="num">57%</td></tr>
+            <tr class="st st-warm"><td>5 days</td><td class="num">71%</td><td class="num">29%</td></tr>
+            <tr class="st st-ok"><td>7 days</td><td class="num">100%</td><td class="num">0%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        This blunts dump pressure without locking anyone out, and the forfeited share
+        is a sink that scales with impatience — it takes the most from exactly the
+        behaviour that damages the token.
+      </p>
+    </section>
+
+    <section id="ledger">
+      <div class="sec-head"><div class="sec-num">11</div><h2>Anti-Ponzi ledger</h2></div>
+      <p class="lede">
+        An honest scorecard. Some of these are solved by the design; one is not, and
+        pretending otherwise would defeat the purpose of writing it down.
+      </p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Property</th><th>Status</th><th class="wrap">Mechanism</th></tr></thead>
+          <tbody>
+            <tr class="st st-ok"><td>Idle capital earns nothing</td><td><span class="tag t-ok">Solved</span></td><td class="wrap">Coolant windows and durability gate all mining yield</td></tr>
+            <tr class="st st-ok"><td>Rewards are not purely stake-weighted</td><td><span class="tag t-ok">Solved</span></td><td class="wrap">40% of supply gated behind rank and activity</td></tr>
+            <tr class="st st-ok"><td>Early players cannot lock in dominance</td><td><span class="tag t-ok">Solved</span></td><td class="wrap">Seasonal rank decay, capped streaks, firewall decay</td></tr>
+            <tr class="st st-ok"><td>Emission is not front-loaded</td><td><span class="tag t-ok">Solved</span></td><td class="wrap">4%/season decay; 32% issued in year one, not 75%</td></tr>
+            <tr class="st st-ok"><td>Instant exit is discouraged</td><td><span class="tag t-ok">Solved</span></td><td class="wrap">Seven-day vesting with a burned forfeit</td></tr>
+            <tr class="st st-warm"><td>Standing demand beyond speculation</td><td><span class="tag t-warm">Partial</span></td><td class="wrap">Upkeep, patches and the firewall arms race are perpetual sinks — but all internal</td></tr>
+            <tr class="st st-hot"><td>Token has a floor independent of new buyers</td><td><span class="tag t-hot">Unsolved</span></td><td class="wrap">Requires external revenue; see below</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="flag">
+        <div class="k">The honest limit</div>
+        <p>Every sink in this document is denominated in qBTC. Burning qBTC destroys
+        a claim; it does not bring a single QRL into the system. The mechanisms above
+        make the economy <em>slower, fairer and harder to farm passively</em> — they do
+        not give the token a floor.</p>
+        <p>A floor requires value entering from outside. The two candidates are
+        secondary-market royalties paid in QRL, and charging the coolant fee in QRL
+        rather than qBTC — thematically exact, since a power bill is paid in real
+        money. Route either into a staked treasury and grant qBTC a pro-rata
+        redemption right, and the forced burns above start raising a floor instead of
+        merely shrinking supply. That is a mainnet decision, not a testnet one.</p>
+      </div>
+    </section>
+
+    <section id="open">
+      <div class="sec-head"><div class="sec-num">12</div><h2>What testnet proves</h2></div>
+      <p class="lede">
+        The point of running this on QRL Zond testnet v2 is to answer questions that
+        no spreadsheet can.
+      </p>
+      <ul>
+        <li><strong>Does the daily loop survive contact with real players?</strong> Simulated
+        strategies always maintain their rigs. Real ones forget, go on holiday, and
+        rage-quit after an explosion.</li>
+        <li><strong>Is the maintenance burden fun or a chore?</strong> If bulk servicing a
+        roster is tedious at ten rigs, it is unplayable at fifty — and the answer
+        changes the whole upkeep cadence.</li>
+        <li><strong>Do the ladders attract different players?</strong> If the same wallets top
+        all three, the rank-gated 40% is stake-weighted in disguise.</li>
+        <li><strong>Is the explosion risk thrilling or just punishing?</strong> A 10% daily
+        loss chance reads very differently when it is your NFT.</li>
+        <li><strong>How much gas does a day of play actually cost?</strong> Every mechanic here
+        adds transactions, and commit–reveal doubles the risky ones.</li>
+      </ul>
+      <p>
+        Liquidity is deliberately out of scope for testnet. The AMM pool, its QRL
+        pairing, and the redemption right all depend on answers this phase is meant
+        to produce.
+      </p>
+    </section>
+
+    <section id="params">
+      <div class="sec-head"><div class="sec-num">13</div><h2>Parameters</h2></div>
+      <p class="lede">Every tunable value in one place, as specified for testnet.</p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Parameter</th><th class="num">Value</th><th class="wrap">Notes</th></tr></thead>
+          <tbody>
+            <tr><td>Total supply</td><td class="num">21,000,000</td><td class="wrap">Hard cap, never exceeded</td></tr>
+            <tr><td>Season length</td><td class="num">30 days</td><td class="wrap">Rank decay and ladder payout boundary</td></tr>
+            <tr><td>Pool decay</td><td class="num">4% / season</td><td class="wrap">Mining and season pools</td></tr>
+            <tr><td>Quest horizon</td><td class="num">60 seasons</td><td class="wrap">Flat payout, then exhausted</td></tr>
+            <tr><td>NFT supply</td><td class="num">50,000</td><td class="wrap">10,000 Gen 0 + 40,000 Gen 1</td></tr>
+            <tr><td>Gen 0 price</td><td class="num">0.069420 QRL</td><td class="wrap">Immutable in the deployed collection</td></tr>
+            <tr><td>Gen 1 ladder</td><td class="num">175 / 350 / 700</td><td class="wrap">qBTC, burned on mint</td></tr>
+            <tr><td>Squirrel mint rate</td><td class="num">10%</td><td class="wrap">Tier 1 / 2 / 3 at 60 / 30 / 10</td></tr>
+            <tr><td>Durability decay</td><td class="num">5 / day</td><td class="wrap">Only while mining</td></tr>
+            <tr><td>Repair per point</td><td class="num">0.05</td><td class="wrap">Of full-rate daily yield</td></tr>
+            <tr><td>Repair service fee</td><td class="num">0.02</td><td class="wrap">Flat, per repair action</td></tr>
+            <tr><td>Critical penalty</td><td class="num">1.5×</td><td class="wrap">Applies below 20 durability</td></tr>
+            <tr><td>Explosion risk</td><td class="num">10% / day</td><td class="wrap">While Critical; commit–reveal</td></tr>
+            <tr><td>Coolant fee</td><td class="num">10%</td><td class="wrap">Of yield produced</td></tr>
+            <tr><td>Squirrel tax</td><td class="num">20%</td><td class="wrap">Of yield claimed</td></tr>
+            <tr><td>Energy decay</td><td class="num">10 / day</td><td class="wrap">While on watch</td></tr>
+            <tr><td>Raid cost</td><td class="num">15 energy</td><td class="wrap">Per attempt</td></tr>
+            <tr><td>Raid theft cap</td><td class="num">25%</td><td class="wrap">Of unclaimed yield</td></tr>
+            <tr><td>Streak bonus</td><td class="num">+1% / day</td><td class="wrap">Capped at +25%</td></tr>
+            <tr><td>Claim vesting</td><td class="num">7 days</td><td class="wrap">Linear; forfeit is burned</td></tr>
+            <tr><td>Minimum stake time</td><td class="num">2 days</td><td class="wrap">Before a rig may be unstaked</td></tr>
+            <tr><td>Unstake steal chance</td><td class="num">50%</td><td class="wrap">Commit–reveal</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer>
+      <p>
+        Figures are produced by <code>scripts/gdd-model.js</code>, <code>scripts/simulate.js</code>
+        and <code>scripts/inflation.js</code> in the project repository, and re-derive on
+        every run. Contracts target Hyperion on QRL Zond testnet v2.
+      </p>
+    </footer>
+  </main>
+</div>

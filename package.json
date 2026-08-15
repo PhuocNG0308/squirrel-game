@@ -14,7 +14,8 @@
     "check": "npm run build && npm run economics && npm test",
     "mint": "node scripts/live-mint.js",
     "simulate": "node scripts/simulate.js",
-    "inflation": "node scripts/inflation.js"
+    "inflation": "node scripts/inflation.js",
+    "gdd": "node scripts/gdd-model.js"
   },
   "author": "",
   "license": "MIT",
