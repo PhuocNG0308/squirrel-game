@@ -333,8 +333,9 @@
       <a href="#seasons"><span>09</span> Seasons &amp; ladders</a>
       <a href="#vesting"><span>10</span> Claim vesting</a>
       <a href="#ledger"><span>11</span> Anti-Ponzi ledger</a>
-      <a href="#open"><span>12</span> What testnet proves</a>
-      <a href="#params"><span>13</span> Parameters</a>
+      <a href="#risks"><span>12</span> Four reviewed risks</a>
+      <a href="#open"><span>13</span> What testnet proves</a>
+      <a href="#params"><span>14</span> Parameters</a>
     </div>
   </nav>
 
@@ -608,9 +609,27 @@
         death spiral.
       </p>
       <p>
-        The 24-hour fuel window is also what makes the contract tractable: it bounds
-        how long a rig can go unsettled, so hashrate accounting never has to sweep
-        every machine on chain.
+        Players <strong>prepay one to seven days</strong> in a single transaction, at the
+        same rate. The original 24-hour-only window was a mistake: it forced everyone
+        on chain daily and bought nothing in return as gameplay.
+      </p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Prepaid window</th><th class="num">Refuels / month</th><th class="num">Gas / month (10 rigs)</th><th class="num">QRL / month</th></tr></thead>
+          <tbody>
+            <tr class="st st-hot"><td>1 day</td><td class="num">30</td><td class="num">8,520,000</td><td class="num">0.00852</td></tr>
+            <tr class="st st-warm"><td>2 days</td><td class="num">15</td><td class="num">4,260,000</td><td class="num">0.00426</td></tr>
+            <tr class="st st-warm"><td>3 days</td><td class="num">10</td><td class="num">2,840,000</td><td class="num">0.00284</td></tr>
+            <tr class="st st-ok"><td>7 days</td><td class="num">5</td><td class="num">1,420,000</td><td class="num">0.00142</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        A seven-day window cuts refuelling gas by <strong>86%</strong> and turns a daily
+        chore into a weekly one. It stays technically safe: across seven days
+        durability falls at most 35 points, crossing at most three hashrate bands, so
+        settlement remains a bounded calculation that never sweeps every machine on
+        chain.
       </p>
     </section>
 
@@ -755,6 +774,22 @@
           </tbody>
         </table>
       </div>
+      <p>
+        The achievement tranche unlocks behind <strong>per-rig tenure</strong> — 30, 60 and
+        90 days of continuous operation on one NFT. Two reasons, equally important:
+      </p>
+      <ul>
+        <li><strong>It flattens sell pressure.</strong> Ungated, most of year one's 157,500
+        qBTC of achievements lands in months two and three, exactly when a liquidity
+        pool would be thinnest.</li>
+        <li><strong>It makes Sybil cost the same as playing.</strong> An alt farming
+        achievements has to keep a rig alive for 90 days. At that point it is no
+        longer an attack.</li>
+      </ul>
+      <p>
+        Quest rewards vest over <strong>14 days</strong> rather than 7, since this is the only
+        track that pays out without any matching capital at risk.
+      </p>
 
       <h3>Fusion</h3>
       <p>
@@ -771,31 +806,63 @@
         Seasons run 30 days. Each closes with a rank decay, a leaderboard payout, and
         a fresh set of quests — a scheduled reason to return.
       </p>
+      <h3>Why the ladders do not favour small wallets</h3>
       <p>
-        Season 1 pays out <strong>210,000 qBTC</strong> across three ladders. Placement is
-        by rank band, not by stake, so the top player takes a fixed 10% of a ladder
-        rather than a multiple of what they deposited.
+        An earlier draft paid by <em>rank band</em> and ranked Top Operators on uptime
+        percentage, on the argument that the metric gets harder to hold at scale.
+        That argument does not survive contact with a permissionless chain.
+      </p>
+      <div class="flag">
+        <div class="k">The Sybil hole</div>
+        <p><strong>Any per-wallet metric can be farmed by splitting.</strong> A whale with
+        200 rigs divides them across 50 wallets at four rigs each, runs a maintenance
+        bot, and sweeps the payouts meant for small players. A metric that
+        <em>favours</em> small wallets makes splitting strictly profitable — the whale
+        wins on scale and collects the newcomer bonus on top.</p>
+      </div>
+      <p>
+        Identity cannot be enforced here, so the design must not depend on it. Score
+        is computed <strong>per NFT</strong>, summed, and the pool is split pro-rata.
+      </p>
+      <div class="formula">score(rig)    = uptime% × active days × quality multiplier<br>score(wallet) = Σ score over the rigs it holds<br>payout        = pool × score(wallet) / total network score</div>
+      <p>
+        Splitting 200 rigs across 50 wallets yields <strong>exactly the same total
+        score</strong>. Sybil gains nothing, so nobody bothers. In exchange we state the
+        trade plainly: season rewards are <em>proportional to NFTs held</em>, and on an
+        open chain that is unavoidable.
+      </p>
+
+      <h3>What Sybil cannot duplicate</h3>
+      <p>
+        The only scarce resource in the game is <strong>the NFT itself</strong> — capped at
+        50,000. A whale with 200 rigs has 200 rigs whether they sit in one wallet or
+        fifty. Every anti-concentration mechanism therefore has to key off NFTs, not
+        wallets:
       </p>
       <div class="tw">
         <table>
-          <thead>
-            <tr><th>Rank band</th><th class="num">Top Miners<br>84,000</th><th class="num">Top Raiders<br>73,500</th><th class="num">Top Operators<br>52,500</th></tr>
-          </thead>
+          <thead><tr><th>Mechanism</th><th>Sybil defeats it?</th><th class="wrap">Why</th></tr></thead>
           <tbody>
-            <tr><td>1st</td><td class="num">8,400</td><td class="num">7,350</td><td class="num">5,250</td></tr>
-            <tr><td>2nd–3rd</td><td class="num">10,080</td><td class="num">8,820</td><td class="num">6,300</td></tr>
-            <tr><td>4th–10th</td><td class="num">15,120</td><td class="num">13,230</td><td class="num">9,450</td></tr>
-            <tr><td>11th–50th</td><td class="num">21,000</td><td class="num">18,375</td><td class="num">13,125</td></tr>
-            <tr><td>51st–200th</td><td class="num">16,800</td><td class="num">14,700</td><td class="num">10,500</td></tr>
-            <tr><td>201st–1000th</td><td class="num">12,600</td><td class="num">11,025</td><td class="num">7,875</td></tr>
+            <tr class="st st-ok"><td>50,000 NFT supply cap</td><td><span class="tag t-ok">No</span></td><td class="wrap">Splitting creates no extra rigs</td></tr>
+            <tr class="st st-ok"><td>Uptime capped at 100% per rig</td><td><span class="tag t-ok">No</span></td><td class="wrap">Nobody outperforms perfect play on a single rig</td></tr>
+            <tr class="st st-ok"><td>Seasonal emission decay</td><td><span class="tag t-ok">No</span></td><td class="wrap">Early advantage shrinks on its own</td></tr>
+            <tr class="st st-ok"><td>D-Rank decay at season close</td><td><span class="tag t-ok">No</span></td><td class="wrap">Resets accumulated edge, per squirrel</td></tr>
+            <tr class="st st-hot"><td>Rank-band payouts</td><td><span class="tag t-hot">Yes</span></td><td class="wrap">Removed from the design</td></tr>
+            <tr class="st st-warm"><td>One-time quests per account</td><td><span class="tag t-warm">Partly</span></td><td class="wrap">Farmable, but each alt needs its own NFTs and must wait out tenure</td></tr>
           </tbody>
         </table>
       </div>
       <p>
-        The ladders are chosen so that different holdings win different races.
-        <strong>Top Operators</strong> ranks by uptime percentage, which gets
-        <em>harder</em> with scale — a player with three rigs can hold 100% uptime far
-        more easily than a whale running two hundred.
+        For quests the answer is not to block Sybil but to <strong>make Sybil cost the
+        same as playing</strong>: achievements unlock behind the tenure of a
+        <em>specific rig</em> — 30, 60 and 90 days of continuous operation. An alt that
+        wants to farm them has to genuinely keep a machine alive that long, at which
+        point it is playing the game.
+      </p>
+      <p>
+        Season 1 still pays <strong>210,000 qBTC</strong>, split 40% Miners / 35% Raiders /
+        25% Operators, but within each ladder it is shared by score rather than by
+        rank band.
       </p>
     </section>
 
@@ -859,8 +926,96 @@
       </div>
     </section>
 
+    <section id="risks">
+      <div class="sec-head"><div class="sec-num">12</div><h2>Four reviewed risks</h2></div>
+      <p class="lede">
+        These came out of an adversarial review of the design. Two forced changes,
+        one measured out as a non-issue, one remains open.
+      </p>
+
+      <h3>1 · Operational friction and burnout</h3>
+      <p>
+        <span class="tag t-ok">Fixed</span> Daily refuelling, repairs, feeding,
+        raiding, three quests and a claim add up to more chores than anyone sustains
+        past a few weeks.
+      </p>
+      <ul>
+        <li>The coolant window becomes a <strong>prepaid one to seven days</strong> at the same rate.</li>
+        <li>Every maintenance call takes an <strong>array of NFTs</strong> — one transaction per fleet.</li>
+        <li>An auto-service vault: lock qBTC up front, the contract draws on it when durability falls below 75%.</li>
+      </ul>
+
+      <h3>2 · Sybil attack on the leaderboards</h3>
+      <p>
+        <span class="tag t-hot">Design was wrong</span> The claim that Top Operators
+        gets harder with scale does not hold: a whale splits 200 rigs across 50
+        wallets, runs a bot, and sweeps the ladder. Resolved in
+        <a href="#seasons">section 09</a> — scoring is per NFT and pro-rata, so
+        splitting gains nothing.
+      </p>
+
+      <h3>3 · Sell pressure in months two and three</h3>
+      <p>
+        <span class="tag t-warm">Mitigated, not measurable here</span> Year one issues
+        32% of supply and the achievement tranche tends to bunch. Achievements now sit
+        behind 30/60/90-day tenure and vest over 14 days, which spreads the payout.
+      </p>
+      <p>
+        The honest caveat: <strong>testnet cannot measure this risk</strong>. With no AMM
+        pool there is no price, and with no price there is no sell pressure to
+        observe. It is a mainnet question, and it is why 5% of supply is held back to
+        seed liquidity.
+      </p>
+
+      <h3>4 · Gas overhead</h3>
+      <p>
+        <span class="tag t-ok">Measured, not a threat</span> The figures below come
+        from real transaction receipts on testnet v2, not estimates.
+      </p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Transaction</th><th class="num">Actual gas</th><th class="num">QRL @ 1 Gwei</th></tr></thead>
+          <tbody>
+            <tr><td><code>commitMint</code> 3 tokens</td><td class="num">122,463</td><td class="num">0.0001225</td></tr>
+            <tr><td><code>revealMint</code> 3 tokens</td><td class="num">609,982</td><td class="num">0.0006100</td></tr>
+            <tr><td><code>commitMint</code> 10 tokens</td><td class="num">90,811</td><td class="num">0.0000908</td></tr>
+            <tr><td><code>revealMint</code> 10 tokens</td><td class="num">1,899,763</td><td class="num">0.0018998</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Commit–reveal <strong>does not double the cost</strong>. The commit is about 5% of
+        the reveal, because the reveal is the half that rolls traits, checks
+        uniqueness and mints. In gas terms the scheme adds roughly <strong>6%</strong> to a
+        mint.
+      </p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Player size</th><th class="num">Gas / month</th><th class="num">QRL / month</th><th class="num">vs one Gen 0 mint</th></tr></thead>
+          <tbody>
+            <tr class="st st-ok"><td>3 rigs, 0 squirrels</td><td class="num">1,623,000</td><td class="num">0.00162</td><td class="num">2.3%</td></tr>
+            <tr class="st st-ok"><td>10 rigs, 1 squirrel</td><td class="num">9,020,000</td><td class="num">0.00902</td><td class="num">13.0%</td></tr>
+            <tr class="st st-ok"><td>50 rigs, 5 squirrels</td><td class="num">27,004,000</td><td class="num">0.02700</td><td class="num">38.9%</td></tr>
+            <tr class="st st-warm"><td>200 rigs, 20 squirrels</td><td class="num">94,444,000</td><td class="num">0.09444</td><td class="num">136.0%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        The smallest player spends <strong>2.3% of one mint price per month</strong> on gas.
+        The worry that gas erodes small-player margin does not materialise at 1 Gwei —
+        if anyone is disadvantaged it is the large holder, whose gas scales close to
+        linearly with fleet size.
+      </p>
+      <p>
+        Two caveats. Without batching, costs rise by up to <strong>1.8×</strong> on large
+        fleets. And the whole table holds at 1 Gwei; sustained congestion at 100 Gwei
+        multiplies every figure by 100 — still under 0.4 QRL/month for ten rigs, but
+        worth re-measuring before mainnet.
+      </p>
+    </section>
+
     <section id="open">
-      <div class="sec-head"><div class="sec-num">12</div><h2>What testnet proves</h2></div>
+      <div class="sec-head"><div class="sec-num">13</div><h2>What testnet proves</h2></div>
       <p class="lede">
         The point of running this on QRL Zond testnet v2 is to answer questions that
         no spreadsheet can.
@@ -887,7 +1042,7 @@
     </section>
 
     <section id="params">
-      <div class="sec-head"><div class="sec-num">13</div><h2>Parameters</h2></div>
+      <div class="sec-head"><div class="sec-num">14</div><h2>Parameters</h2></div>
       <p class="lede">Every tunable value in one place, as specified for testnet.</p>
       <div class="tw">
         <table>
@@ -907,12 +1062,16 @@
             <tr><td>Critical penalty</td><td class="num">1.5×</td><td class="wrap">Applies below 20 durability</td></tr>
             <tr><td>Explosion risk</td><td class="num">10% / day</td><td class="wrap">While Critical; commit–reveal</td></tr>
             <tr><td>Coolant fee</td><td class="num">10%</td><td class="wrap">Of yield produced</td></tr>
+            <tr><td>Prepaid coolant window</td><td class="num">1–7 days</td><td class="wrap">Same rate; 7 days cuts 86% of refuel gas</td></tr>
             <tr><td>Squirrel tax</td><td class="num">20%</td><td class="wrap">Of yield claimed</td></tr>
             <tr><td>Energy decay</td><td class="num">10 / day</td><td class="wrap">While on watch</td></tr>
             <tr><td>Raid cost</td><td class="num">15 energy</td><td class="wrap">Per attempt</td></tr>
             <tr><td>Raid theft cap</td><td class="num">25%</td><td class="wrap">Of unclaimed yield</td></tr>
             <tr><td>Streak bonus</td><td class="num">+1% / day</td><td class="wrap">Capped at +25%</td></tr>
             <tr><td>Claim vesting</td><td class="num">7 days</td><td class="wrap">Linear; forfeit is burned</td></tr>
+            <tr><td>Quest reward vesting</td><td class="num">14 days</td><td class="wrap">Longer; no matching capital at risk</td></tr>
+            <tr><td>Achievement tenure gate</td><td class="num">30/60/90 days</td><td class="wrap">Per NFT, continuous</td></tr>
+            <tr><td>Season payout</td><td class="num">pro-rata</td><td class="wrap">By per-NFT score — Sybil-neutral</td></tr>
             <tr><td>Minimum stake time</td><td class="num">2 days</td><td class="wrap">Before a rig may be unstaked</td></tr>
             <tr><td>Unstake steal chance</td><td class="num">50%</td><td class="wrap">Commit–reveal</td></tr>
           </tbody>

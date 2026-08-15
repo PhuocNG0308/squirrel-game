@@ -340,8 +340,9 @@
       <a href="#mua-giai"><span>09</span> Mùa giải &amp; xếp hạng</a>
       <a href="#vesting"><span>10</span> Vesting khi rút</a>
       <a href="#so-ke"><span>11</span> Sổ kê chống Ponzi</a>
-      <a href="#testnet"><span>12</span> Testnet chứng minh gì</a>
-      <a href="#tham-so"><span>13</span> Bảng tham số</a>
+      <a href="#rui-ro"><span>12</span> Bốn rủi ro đã rà soát</a>
+      <a href="#testnet"><span>13</span> Testnet chứng minh gì</a>
+      <a href="#tham-so"><span>14</span> Bảng tham số</a>
     </div>
   </nav>
 
@@ -614,9 +615,26 @@
         kiểu này rơi vào vòng xoáy tử thần.
       </p>
       <p>
-        Cửa sổ nhiên liệu 24 giờ cũng chính là thứ làm hợp đồng khả thi: nó chặn trên
-        khoảng thời gian một máy có thể chưa được quyết toán, nên việc hạch toán
-        hashrate không bao giờ phải quét toàn bộ máy on-chain.
+        Người chơi <strong>nạp trước từ 1 đến 7 ngày</strong> trong một giao dịch, cùng đơn
+        giá. Bản thiết kế đầu chỉ cho cửa sổ 24 giờ, và đó là một sai lầm: nó ép mọi
+        người lên chuỗi mỗi ngày mà không đổi lại được gì về mặt lối chơi.
+      </p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Cửa sổ nạp trước</th><th class="num">Lần nạp / tháng</th><th class="num">Gas / tháng (10 máy)</th><th class="num">QRL / tháng</th></tr></thead>
+          <tbody>
+            <tr class="st st-hot"><td>1 ngày</td><td class="num">30</td><td class="num">8.520.000</td><td class="num">0,00852</td></tr>
+            <tr class="st st-warm"><td>2 ngày</td><td class="num">15</td><td class="num">4.260.000</td><td class="num">0,00426</td></tr>
+            <tr class="st st-warm"><td>3 ngày</td><td class="num">10</td><td class="num">2.840.000</td><td class="num">0,00284</td></tr>
+            <tr class="st st-ok"><td>7 ngày</td><td class="num">5</td><td class="num">1.420.000</td><td class="num">0,00142</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Cửa sổ 7 ngày cắt <strong>86% gas nạp nhiên liệu</strong> và biến việc vặt hằng
+        ngày thành hằng tuần. Nó vẫn an toàn về kỹ thuật: qua bảy ngày độ bền rơi tối
+        đa 35 điểm, tức băng qua nhiều nhất ba ngưỡng hashrate — phép quyết toán vẫn
+        có chặn trên, không bao giờ phải quét toàn bộ máy on-chain.
       </p>
     </section>
 
@@ -762,6 +780,23 @@
           </tbody>
         </table>
       </div>
+      <p>
+        Nhánh thành tựu <strong>khoá theo thâm niên của từng máy</strong> — mốc 30, 60 và
+        90 ngày vận hành liên tục trên đúng một NFT. Hai lý do, và cả hai đều quan
+        trọng ngang nhau:
+      </p>
+      <ul>
+        <li><strong>Trải phẳng áp lực xả.</strong> Không khoá thời gian thì phần lớn 157.500
+        qBTC thành tựu của năm đầu sẽ được lĩnh gọn trong tháng 2–3, đúng lúc pool
+        thanh khoản còn mỏng nhất.</li>
+        <li><strong>Làm Sybil tốn đúng bằng chơi thật.</strong> Một ví phụ muốn farm thành
+        tựu phải thực sự nuôi máy đủ 90 ngày. Đến lúc đó nó không còn là tấn công
+        nữa — nó là chơi game.</li>
+      </ul>
+      <p>
+        Thưởng nhiệm vụ dùng vesting <strong>14 ngày</strong> thay vì 7, vì đây là nguồn
+        token duy nhất đến tay người chơi mà không cần vốn đối ứng.
+      </p>
 
       <h3>Hợp nhất</h3>
       <p>
@@ -778,31 +813,62 @@
         Mỗi mùa kéo dài 30 ngày, khép lại bằng một đợt tụt hạng, một đợt trả thưởng
         bảng xếp hạng, và một bộ nhiệm vụ mới — một lý do có lịch để quay lại.
       </p>
+      <h3>Vì sao bảng xếp hạng không ưu ái ví nhỏ</h3>
       <p>
-        Mùa 1 trả <strong>210.000 qBTC</strong> qua ba bảng xếp hạng. Vị trí tính theo dải
-        thứ hạng chứ không theo stake, nên người đứng đầu nhận đúng 10% của một bảng
-        thay vì một bội số của số vốn họ đã nạp.
+        Bản thiết kế trước trả thưởng theo <em>dải thứ hạng</em> và xếp Vận hành viên
+        theo phần trăm uptime, với lập luận rằng chỉ số này càng nhiều máy càng khó
+        giữ. Lập luận đó sai.
+      </p>
+      <div class="flag">
+        <div class="k">Lỗ hổng Sybil</div>
+        <p>Trên một chuỗi không cần cấp phép, <strong>bất kỳ chỉ số nào tính theo ví
+        đều bị farm bằng cách tách ví</strong>. Cá voi có 200 máy chỉ cần chia thành 50 ví
+        mỗi ví 4 máy, chạy bot bảo trì, rồi chiếm luôn phần thưởng dành cho "người
+        chơi nhỏ". Chỉ số nào <em>ưu ái</em> ví nhỏ thì tách ví là có lãi tuyệt đối —
+        nghĩa là cá voi vừa thắng bằng quy mô, vừa lấy nốt phần bù dành cho người mới.</p>
+      </div>
+      <p>
+        Không có cách nào chặn Sybil bằng danh tính ở đây. Nên thiết kế phải
+        <strong>không phụ thuộc vào danh tính</strong>: điểm được tính <em>trên từng NFT</em>,
+        rồi cộng lại, và quỹ chia pro-rata theo điểm.
+      </p>
+      <div class="formula">điểm(máy)  = % uptime × số ngày hoạt động × hệ số chất lượng<br>điểm(ví)  = Σ điểm các máy thuộc ví đó<br>thưởng    = quỹ mùa × điểm(ví) / tổng điểm toàn mạng</div>
+      <p>
+        Tách 200 máy ra 50 ví cho <strong>đúng cùng một tổng điểm</strong>. Sybil không còn
+        lợi ích, nên cũng không còn động cơ. Đổi lại, ta thừa nhận thẳng: phần thưởng
+        mùa <em>tỉ lệ với số NFT sở hữu</em>, và điều đó là không tránh được trên chuỗi
+        công khai.
+      </p>
+
+      <h3>Thứ Sybil không nhân bản được</h3>
+      <p>
+        Tài nguyên khan hiếm duy nhất trong game là <strong>chính NFT</strong> — trần
+        50.000. Cá voi có 200 máy thì vẫn là 200 máy, dù nằm trong 1 ví hay 50 ví. Nên
+        toàn bộ công việc chống tập trung hoá phải dựa vào những cơ chế gắn với NFT,
+        không gắn với ví:
       </p>
       <div class="tw">
         <table>
-          <thead>
-            <tr><th>Dải thứ hạng</th><th class="num">Thợ đào<br>84.000</th><th class="num">Kẻ cướp<br>73.500</th><th class="num">Vận hành viên<br>52.500</th></tr>
-          </thead>
+          <thead><tr><th>Cơ chế</th><th>Sybil vượt được?</th><th class="wrap">Vì sao</th></tr></thead>
           <tbody>
-            <tr><td>Hạng 1</td><td class="num">8.400</td><td class="num">7.350</td><td class="num">5.250</td></tr>
-            <tr><td>Hạng 2–3</td><td class="num">10.080</td><td class="num">8.820</td><td class="num">6.300</td></tr>
-            <tr><td>Hạng 4–10</td><td class="num">15.120</td><td class="num">13.230</td><td class="num">9.450</td></tr>
-            <tr><td>Hạng 11–50</td><td class="num">21.000</td><td class="num">18.375</td><td class="num">13.125</td></tr>
-            <tr><td>Hạng 51–200</td><td class="num">16.800</td><td class="num">14.700</td><td class="num">10.500</td></tr>
-            <tr><td>Hạng 201–1000</td><td class="num">12.600</td><td class="num">11.025</td><td class="num">7.875</td></tr>
+            <tr class="st st-ok"><td>Trần cung 50.000 NFT</td><td><span class="tag t-ok">Không</span></td><td class="wrap">Tách ví không tạo thêm máy</td></tr>
+            <tr class="st st-ok"><td>Uptime trần ở 100%/máy</td><td><span class="tag t-ok">Không</span></td><td class="wrap">Không ai vượt được chơi hoàn hảo trên từng máy</td></tr>
+            <tr class="st st-ok"><td>Suy giảm phát hành theo mùa</td><td><span class="tag t-ok">Không</span></td><td class="wrap">Ưu thế của người vào sớm tự co lại theo thời gian</td></tr>
+            <tr class="st st-ok"><td>Tụt D-Rank cuối mùa</td><td><span class="tag t-ok">Không</span></td><td class="wrap">Reset lợi thế tích luỹ, tính trên từng con sóc</td></tr>
+            <tr class="st st-hot"><td>Thưởng theo dải thứ hạng</td><td><span class="tag t-hot">Có</span></td><td class="wrap">Đã loại bỏ khỏi thiết kế</td></tr>
+            <tr class="st st-warm"><td>Nhiệm vụ một lần / tài khoản</td><td><span class="tag t-warm">Một phần</span></td><td class="wrap">Farm được, nhưng mỗi ví phụ phải có NFT riêng và chờ đủ thâm niên</td></tr>
           </tbody>
         </table>
       </div>
       <p>
-        Ba bảng được chọn sao cho quy mô sở hữu khác nhau thắng ở những cuộc đua khác
-        nhau. <strong>Vận hành viên</strong> xếp theo phần trăm uptime, mà chỉ số này càng
-        nhiều máy càng <em>khó</em> — người có ba máy giữ 100% uptime dễ hơn nhiều so với
-        cá voi chạy hai trăm máy.
+        Với nhiệm vụ, biện pháp không phải là chặn Sybil mà là <strong>làm cho Sybil tốn
+        đúng bằng chơi thật</strong>: thành tựu bị khoá sau thâm niên của <em>từng máy cụ
+        thể</em> (30 / 60 / 90 ngày vận hành liên tục). Một ví phụ muốn farm phải thực sự
+        nuôi máy đủ lâu — đến lúc đó thì nó đã là chơi game rồi.
+      </p>
+      <p>
+        Mùa 1 vẫn trả <strong>210.000 qBTC</strong>, chia 40% Thợ đào / 35% Kẻ cướp / 25%
+        Vận hành viên, nhưng trong mỗi bảng là chia theo điểm chứ không theo dải hạng.
       </p>
     </section>
 
@@ -866,8 +932,95 @@
       </div>
     </section>
 
+    <section id="rui-ro">
+      <div class="sec-head"><div class="sec-num">12</div><h2>Bốn rủi ro đã rà soát</h2></div>
+      <p class="lede">
+        Bốn điểm dưới đây là kết quả rà soát phản biện bản thiết kế. Hai điểm đã buộc
+        phải sửa thiết kế, một điểm đo được là không đáng lo, một điểm vẫn mở.
+      </p>
+
+      <h3>1 · Ma sát vận hành &amp; kiệt sức người chơi</h3>
+      <p>
+        <span class="tag t-ok">Đã sửa</span> Nạp nhiên liệu 24h, bảo trì, cho sóc ăn,
+        tập kích, ba nhiệm vụ, claim — cộng lại là quá nhiều việc vặt để duy trì quá
+        vài tuần.
+      </p>
+      <ul>
+        <li>Cửa sổ chất làm lạnh nới thành <strong>nạp trước tới 7 ngày</strong>, cùng đơn giá.</li>
+        <li>Mọi thao tác bảo dưỡng nhận <strong>mảng NFT</strong> — một giao dịch cho cả đội máy.</li>
+        <li>Két tự động: khoá sẵn qBTC, hợp đồng tự trích khi độ bền tụt dưới 75%.</li>
+      </ul>
+
+      <h3>2 · Tấn công Sybil vào bảng xếp hạng</h3>
+      <p>
+        <span class="tag t-hot">Thiết kế đã sai</span> Luận điểm "Vận hành viên càng
+        nhiều máy càng khó thắng" không đứng vững: cá voi tách 200 máy thành 50 ví rồi
+        chạy bot là chiếm trọn bảng. Chi tiết và cách xử lý ở
+        <a href="#mua-giai">mục 09</a> — điểm nay tính trên từng NFT và chia pro-rata,
+        nên tách ví không còn lợi.
+      </p>
+
+      <h3>3 · Áp lực xả tháng 2–3</h3>
+      <p>
+        <span class="tag t-warm">Đã giảm nhẹ, chưa đo được</span> Năm đầu phát 32% tổng
+        cung, và cụm thành tựu dễ dồn về tháng 2–3. Thành tựu nay khoá sau thâm niên
+        30/60/90 ngày và vesting 14 ngày, nên lượng token trải đều thay vì đổ dồn.
+      </p>
+      <p>
+        Nhưng phải nói thẳng: <strong>testnet không đo được rủi ro này</strong>. Không có
+        pool AMM thì không có giá, không có giá thì không có áp lực xả để quan sát.
+        Đây là rủi ro chỉ mainnet mới trả lời được, và là lý do 5% tổng cung được giữ
+        lại để khởi tạo thanh khoản.
+      </p>
+
+      <h3>4 · Chi phí gas</h3>
+      <p>
+        <span class="tag t-ok">Đo rồi, không đáng lo</span> Số liệu dưới đây lấy từ
+        biên lai giao dịch thật trên testnet v2, không phải ước lượng.
+      </p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Giao dịch</th><th class="num">Gas thật</th><th class="num">QRL @ 1 Gwei</th></tr></thead>
+          <tbody>
+            <tr><td><code>commitMint</code> 3 token</td><td class="num">122.463</td><td class="num">0,0001225</td></tr>
+            <tr><td><code>revealMint</code> 3 token</td><td class="num">609.982</td><td class="num">0,0006100</td></tr>
+            <tr><td><code>commitMint</code> 10 token</td><td class="num">90.811</td><td class="num">0,0000908</td></tr>
+            <tr><td><code>revealMint</code> 10 token</td><td class="num">1.899.763</td><td class="num">0,0018998</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Commit–reveal <strong>không nhân đôi chi phí</strong>. Commit chỉ tốn khoảng 5% của
+        reveal, vì reveal mới là bên gieo trait, kiểm tra trùng lặp và mint. Tính theo
+        gas, commit–reveal chỉ đội thêm khoảng <strong>6%</strong> cho một lượt mint.
+      </p>
+      <div class="tw">
+        <table>
+          <thead><tr><th>Quy mô người chơi</th><th class="num">Gas / tháng</th><th class="num">QRL / tháng</th><th class="num">So với 1 lượt mint Gen 0</th></tr></thead>
+          <tbody>
+            <tr class="st st-ok"><td>3 máy, 0 sóc</td><td class="num">1.623.000</td><td class="num">0,00162</td><td class="num">2,3%</td></tr>
+            <tr class="st st-ok"><td>10 máy, 1 sóc</td><td class="num">9.020.000</td><td class="num">0,00902</td><td class="num">13,0%</td></tr>
+            <tr class="st st-ok"><td>50 máy, 5 sóc</td><td class="num">27.004.000</td><td class="num">0,02700</td><td class="num">38,9%</td></tr>
+            <tr class="st st-warm"><td>200 máy, 20 sóc</td><td class="num">94.444.000</td><td class="num">0,09444</td><td class="num">136,0%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Người chơi nhỏ nhất tốn <strong>2,3% giá một lượt mint mỗi tháng</strong> cho gas.
+        Lo ngại "gas ăn mòn lợi nhuận người chơi nhỏ" không thành hiện thực ở mức 1
+        Gwei — nếu có ai chịu thiệt tương đối thì lại là người chơi lớn, vì gas của họ
+        tăng gần tuyến tính theo số máy.
+      </p>
+      <p>
+        Hai cảnh báo đi kèm. Không gộp giao dịch thì chi phí tăng tới <strong>1,8 lần</strong>
+        với đội máy lớn. Và toàn bộ bảng này đúng ở 1 Gwei; tắc nghẽn kéo dài ở 100
+        Gwei sẽ nhân mọi con số lên 100 lần — vẫn dưới 0,4 QRL/tháng cho 10 máy, nhưng
+        cần đo lại trước mainnet.
+      </p>
+    </section>
+
     <section id="testnet">
-      <div class="sec-head"><div class="sec-num">12</div><h2>Testnet chứng minh điều gì</h2></div>
+      <div class="sec-head"><div class="sec-num">13</div><h2>Testnet chứng minh điều gì</h2></div>
       <p class="lede">
         Mục đích chạy trên QRL Zond testnet v2 là trả lời những câu hỏi mà không bảng
         tính nào trả lời được.
@@ -894,7 +1047,7 @@
     </section>
 
     <section id="tham-so">
-      <div class="sec-head"><div class="sec-num">13</div><h2>Bảng tham số</h2></div>
+      <div class="sec-head"><div class="sec-num">14</div><h2>Bảng tham số</h2></div>
       <p class="lede">Toàn bộ giá trị có thể tinh chỉnh, gom về một chỗ, theo đặc tả cho testnet.</p>
       <div class="tw">
         <table>
@@ -914,12 +1067,16 @@
             <tr><td>Phạt Nguy cấp</td><td class="num">1,5×</td><td class="wrap">Áp dụng khi độ bền dưới 20</td></tr>
             <tr><td>Rủi ro nổ máy</td><td class="num">10% / ngày</td><td class="wrap">Khi Nguy cấp; dùng commit–reveal</td></tr>
             <tr><td>Phí chất làm lạnh</td><td class="num">10%</td><td class="wrap">Của sản lượng tạo ra</td></tr>
+            <tr><td>Cửa sổ nạp trước</td><td class="num">1–7 ngày</td><td class="wrap">Cùng đơn giá; 7 ngày cắt 86% gas</td></tr>
             <tr><td>Thuế Sóc</td><td class="num">20%</td><td class="wrap">Của lợi tức khi claim</td></tr>
             <tr><td>Hao năng lượng</td><td class="num">10 / ngày</td><td class="wrap">Khi đang gác</td></tr>
             <tr><td>Chi phí tập kích</td><td class="num">15 năng lượng</td><td class="wrap">Mỗi lần thử</td></tr>
             <tr><td>Trần cướp</td><td class="num">25%</td><td class="wrap">Của lợi tức chưa claim</td></tr>
             <tr><td>Thưởng chuỗi ngày</td><td class="num">+1% / ngày</td><td class="wrap">Trần ở +25%</td></tr>
             <tr><td>Vesting khi claim</td><td class="num">7 ngày</td><td class="wrap">Tuyến tính; phần bỏ lại bị đốt</td></tr>
+            <tr><td>Vesting thưởng nhiệm vụ</td><td class="num">14 ngày</td><td class="wrap">Dài hơn vì không cần vốn đối ứng</td></tr>
+            <tr><td>Khoá thâm niên thành tựu</td><td class="num">30/60/90 ngày</td><td class="wrap">Trên từng NFT, liên tục</td></tr>
+            <tr><td>Chia thưởng mùa</td><td class="num">pro-rata</td><td class="wrap">Theo điểm từng NFT — trung tính với Sybil</td></tr>
             <tr><td>Thời gian stake tối thiểu</td><td class="num">2 ngày</td><td class="wrap">Trước khi được rút máy ra</td></tr>
             <tr><td>Rủi ro mất lợi tức khi rút</td><td class="num">50%</td><td class="wrap">Dùng commit–reveal</td></tr>
           </tbody>
