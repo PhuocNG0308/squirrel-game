@@ -1,0 +1,50 @@
+// SPDX-License-Identifier: MIT
+pragma hyperion >=0.0.1;
+
+import "./lib/openzeppelin/token/ERC20/ERC20.hyp";
+import "./lib/openzeppelin/access/Ownable.hyp";
+
+/**
+ * qBTC — the yield token of Squirrel Game.
+ *
+ * No premine and no cap enforced here. Supply is minted solely by whitelisted
+ * controller contracts: MiningFarm mints mining yield, SquirrelGame burns qBTC
+ * to pay for Gen 1+ mints. The 21,000,000 emission ceiling is enforced by
+ * MiningFarm.MAXIMUM_GLOBAL_QBTC.
+ */
+contract QBTC is ERC20, Ownable {
+    /// @dev contracts allowed to mint/burn (MiningFarm, SquirrelGame)
+    mapping(address => bool) public controllers;
+
+    event ControllerAdded(address indexed controller);
+    event ControllerRemoved(address indexed controller);
+
+    constructor() ERC20("qBTC", "qBTC") {}
+
+    /**
+     * Mint qBTC. Restricted to controllers so emission stays governed by the
+     * staking maths rather than the deployer key.
+     */
+    function mint(address to, uint256 amount) external {
+        require(controllers[msg.sender], "Only controllers can mint");
+        _mint(to, amount);
+    }
+
+    /**
+     * Burn qBTC from a holder. Used when paying the qBTC mint cost of Gen 1+.
+     */
+    function burn(address from, uint256 amount) external {
+        require(controllers[msg.sender], "Only controllers can burn");
+        _burn(from, amount);
+    }
+
+    function addController(address controller) external onlyOwner {
+        controllers[controller] = true;
+        emit ControllerAdded(controller);
+    }
+
+    function removeController(address controller) external onlyOwner {
+        controllers[controller] = false;
+        emit ControllerRemoved(controller);
+    }
+}

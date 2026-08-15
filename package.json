@@ -1,17 +1,31 @@
 {
   "name": "squirrel-game",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Squirrel Game — a Wolf Game-style NFT yield farming game in Hyperion for QRL Zond (Hyperion) testnet v2",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "vendor": "node scripts/vendor-oz.js",
+    "traits": "node scripts/gen-traits.js",
+    "compile": "node scripts/compile.js",
+    "economics": "node scripts/economics.js",
+    "build": "npm run vendor && npm run traits && npm run compile",
+    "deploy": "node scripts/deploy.js",
+    "verify": "node scripts/verify.js",
+    "test": "node test/game.test.js",
+    "check": "npm run build && npm run economics && npm test",
+    "mint": "node scripts/live-mint.js"
   },
-  "keywords": [],
   "author": "",
-  "license": "ISC",
+  "license": "MIT",
   "type": "commonjs",
   "dependencies": {
-    "@theqrl/web3": "^0.5.0",
-    "solc": "^0.8.26"
+    "@openzeppelin/contracts": "^4.9.6",
+    "@theqrl/hypc": "^0.0.2",
+    "@theqrl/web3": "^0.5.0"
+  },
+  "devDependencies": {
+    "@ethereumjs/common": "^10.1.2",
+    "@ethereumjs/util": "^10.1.2",
+    "@ethereumjs/vm": "^10.1.2",
+    "ethereum-cryptography": "^3.2.0"
   }
 }

@@ -1,0 +1,32 @@
+// SPDX-License-Identifier: MIT
+pragma hyperion >=0.0.1;
+
+interface ISquirrelGame {
+    /**
+     * Traits of a single token.
+     *
+     * `isQuantum` selects the species: a Quantum Computer mines qBTC, a
+     * Squirrel taxes and steals it. The eight cosmetic slots are shared by
+     * both; their meaning differs per species (see Traits).
+     *
+     * `tierIndex` is the alias-table index, NOT the alpha score. Alpha is
+     * `MAX_ALPHA - tierIndex`, so index 0 is Tier 3 (alpha 8, rarest) and
+     * index 2 is Tier 1 (alpha 6, most common). Unused for Quantum Computers.
+     */
+    struct QuantumSquirrel {
+        bool isQuantum;
+        uint8 chassis;
+        uint8 head;
+        uint8 ears;
+        uint8 eyes;
+        uint8 nose;
+        uint8 mouth;
+        uint8 neck;
+        uint8 feet;
+        uint8 tierIndex;
+    }
+
+    function getPaidTokens() external view returns (uint256);
+
+    function getTokenTraits(uint256 tokenId) external view returns (QuantumSquirrel memory);
+}

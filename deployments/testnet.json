@@ -1,0 +1,16 @@
+{
+  "network": "QRL Zond testnet v2 (Hyperion)",
+  "rpc": "https://qrlwallet.com/api/qrl-rpc/testnet",
+  "chainId": 1337,
+  "deployer": "Q11cbf00fD1F343E909836F108fC74795d09a5D3a",
+  "deployedAt": "2026-08-15T08:01:37.406Z",
+  "baseImageURI": "https://raw.githubusercontent.com/PhuocNG0308/squirrel-game/main/assets/",
+  "maxTokens": 50000,
+  "paidTokens": 10000,
+  "contracts": {
+    "QBTC": "QA7B4Ea49212f98fc5E7EA47B1455d1a84619517a",
+    "Traits": "Q9161d0A9623A1f25A1f5Ba0300e773b4D75948C7",
+    "SquirrelGame": "Qfb47c6091d44465E10A576EeAD73c049C339258b",
+    "MiningFarm": "QD3301738E761A9Bf4FfD1919B995b274515235d4"
+  }
+}

@@ -1,0 +1,76 @@
+// SPDX-License-Identifier: MIT
+pragma hyperion >=0.0.1;
+
+/**
+ * Future-block randomness for on-chain games.
+ *
+ * Randomness read in the same transaction that consumes it is unsafe
+ * regardless of entropy quality: a caller can wrap the action in a contract,
+ * inspect the outcome, and revert when it is unfavourable, retrying until it
+ * wins. The defect is observability before commitment, not weak entropy.
+ *
+ * The action is therefore split in two. A commit records a `revealBlock` in
+ * the future; the reveal derives the seed from that block's hash. On
+ * proof-of-stake a block hash commits to the block's `prevRandao`, so beacon
+ * randomness is the entropy source, read from a block that did not exist when
+ * the player committed.
+ *
+ * The seed becomes fixed the moment `revealBlock` is mined: reverting a reveal
+ * and retrying yields the same result, so there is nothing to grind. Reveals
+ * are permissionless so that withholding one gains nothing.
+ *
+ * Values the revealer controls must never enter the seed — they choose *when*
+ * to reveal, so `block.prevrandao` and `blockhash(block.number - 1)` at reveal
+ * time, `block.timestamp`, and the caller's address would all restore the
+ * retry attack.
+ *
+ * Known limits:
+ *   - Block hashes survive only 256 blocks (~4.3 h at 60 s). A commit left
+ *     past that must be re-anchored, which is one fresh draw.
+ *   - The proposer of `revealBlock` can reorder its contents to bias the hash.
+ *     This needs control of that slot and is far weaker than open retrying.
+ */
+library CommitReveal {
+    /// @dev the ZVM retains only the most recent 256 block hashes
+    uint256 internal constant BLOCKHASH_WINDOW = 256;
+
+    /// @dev the seed block must be strictly after the commit block
+    uint256 internal constant REVEAL_DELAY = 1;
+
+    /// @return the block whose hash will seed a commit made in this transaction
+    function targetBlock() internal view returns (uint64) {
+        return uint64(block.number + REVEAL_DELAY);
+    }
+
+    /**
+     * Per-commit salt. `block.prevrandao` is the commit block's beacon value,
+     * already known to the committer; it adds no unpredictability but forces a
+     * biasing proposer to control the commit block as well as the reveal block.
+     */
+    function salt(address account, uint256 nonce) internal view returns (uint256) {
+        return uint256(keccak256(abi.encodePacked(account, nonce, block.prevrandao)));
+    }
+
+    /// @return true once `revealBlock` has been mined and can be hashed
+    function isReady(uint64 revealBlock) internal view returns (bool) {
+        return revealBlock != 0 && block.number > revealBlock;
+    }
+
+    /// @return true once `revealBlock`'s hash has aged out of the window
+    function isExpired(uint64 revealBlock) internal view returns (bool) {
+        return revealBlock != 0 && block.number > revealBlock + BLOCKHASH_WINDOW;
+    }
+
+    /// @dev reverts unless the reveal block is mined and still within the window
+    function seed(uint64 revealBlock, uint256 committedSalt) internal view returns (uint256) {
+        require(isReady(revealBlock), "Reveal block not mined yet");
+        bytes32 bh = blockhash(revealBlock);
+        require(bh != bytes32(0), "Reveal window expired");
+        return uint256(keccak256(abi.encodePacked(bh, committedSalt)));
+    }
+
+    /// @dev independent sub-seed for item `index` of a multi-item commit
+    function derive(uint256 baseSeed, uint256 index) internal pure returns (uint256) {
+        return uint256(keccak256(abi.encodePacked(baseSeed, index)));
+    }
+}

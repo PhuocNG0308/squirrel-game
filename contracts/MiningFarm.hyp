@@ -1,0 +1,439 @@
+// SPDX-License-Identifier: MIT
+pragma hyperion >=0.0.1;
+
+import "./lib/openzeppelin/token/ERC721/IERC721Receiver.hyp";
+import "./lib/openzeppelin/access/Ownable.hyp";
+import "./lib/openzeppelin/security/Pausable.hyp";
+import "./lib/openzeppelin/security/ReentrancyGuard.hyp";
+import "./lib/CommitReveal.hyp";
+
+import "./interfaces/ISquirrelGame.hyp";
+import "./SquirrelGame.hyp";
+import "./QBTC.hyp";
+
+/**
+ * MiningFarm — staking for both species.
+ *
+ *   Farm: Quantum Computers mine qBTC at a flat 87.5 per day.
+ *   Drey: Squirrels take a cut of that yield, split by alpha weight.
+ *
+ * Rules:
+ *   - claiming pays a 20% tax to the Drey
+ *   - a Quantum Computer cannot leave the Farm for its first 2 days
+ *   - unstaking one is a coin flip: half the time the Drey takes the entire
+ *     pending yield. That flip is committed a block ahead (`requestExit` then
+ *     `executeExit`) so it cannot be inspected and reverted
+ *   - Squirrels are never at risk and carry no random outcome
+ *   - emission halts globally at 21,000,000 qBTC
+ */
+contract MiningFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
+    struct Stake {
+        uint16 tokenId;
+        uint80 value;
+        address owner;
+    }
+
+    /**
+     * A pending unstake. Unstaking is the only action here with a random
+     * outcome, so it is the only one that needs two phases; claiming is
+     * deterministic and stays a single transaction.
+     */
+    struct ExitCommit {
+        uint16[] tokenIds;
+        uint64 revealBlock;
+        uint256 salt;
+    }
+
+    /// @dev alpha 8 = Tier 3 (rarest), 7 = Tier 2, 6 = Tier 1
+    uint8 public constant MAX_ALPHA = 8;
+    /// @dev number of distinct alpha ranks (3 tiers)
+    uint8 public constant ALPHA_RANKS = 3;
+
+    /**
+     * Emission is capped at 21,000,000 qBTC.
+     *
+     * At 87.5 qBTC per miner per day the cap spans 240,000 miner-days, and two
+     * days of mining covers the cheapest Gen 1 mint (175 qBTC). Yield accrues
+     * only while Quantum Computers are staked, so the calendar time to reach
+     * the cap depends entirely on participation — see scripts/economics.js.
+     */
+    uint256 public constant DAILY_QBTC_RATE = 87.5 ether;
+    uint256 public constant MINIMUM_TO_EXIT = 2 days;
+    uint256 public constant QBTC_CLAIM_TAX_PERCENTAGE = 20;
+    uint256 public constant MAXIMUM_GLOBAL_QBTC = 21000000 ether;
+
+    SquirrelGame public game;
+    QBTC public qbtc;
+
+    /// @dev tokenId => stake, for Quantum Computers in the Farm
+    mapping(uint256 => Stake) public farm;
+    /// @dev alpha => list of staked Squirrels at that alpha
+    mapping(uint256 => Stake[]) public drey;
+    /// @dev tokenId => index into its drey[alpha] array
+    mapping(uint256 => uint256) public dreyIndices;
+
+    uint256 public totalAlphaStaked;
+    uint256 public totalQuantumStaked;
+    /// @dev qBTC owed to the Drey while nothing is staked there
+    uint256 public unaccountedRewards;
+    /// @dev cumulative qBTC paid out per unit of alpha
+    uint256 public qbtcPerAlpha;
+
+    uint256 public totalQbtcEarned;
+    uint256 public lastClaimTimestamp;
+
+    /// @dev emergency exit, forfeits all pending yield
+    bool public rescueEnabled = false;
+
+    /// @dev one outstanding exit request per address
+    mapping(address => ExitCommit) public exitCommits;
+    /// @dev monotonic, feeds the commit salt
+    uint256 public commitNonce;
+
+    event TokenStaked(address indexed owner, uint256 indexed tokenId, uint256 value);
+    event QuantumClaimed(uint256 indexed tokenId, uint256 earned, bool unstaked);
+    event SquirrelClaimed(uint256 indexed tokenId, uint256 earned, bool unstaked);
+    event ExitCommitted(address indexed owner, uint256 tokenCount, uint64 revealBlock);
+    event ExitRevealed(address indexed owner, address indexed revealer, uint256 earned);
+    event ExitReanchored(address indexed owner, uint64 revealBlock);
+
+    constructor(address _game, address _qbtc) {
+        game = SquirrelGame(_game);
+        qbtc = QBTC(_qbtc);
+    }
+
+    /* ---------------------------------------------------------- STAKING */
+
+    function addManyToFarmAndDrey(address account, uint16[] calldata tokenIds)
+        external
+        _updateEarnings
+    {
+        require(
+            account == _msgSender() || _msgSender() == address(game),
+            "Cannot stake on behalf of another account"
+        );
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            if (tokenIds[i] == 0) continue; // slot skipped by a stolen mint
+
+            if (_msgSender() != address(game)) {
+                require(game.ownerOf(tokenIds[i]) == _msgSender(), "Not your token");
+                game.transferFrom(_msgSender(), address(this), tokenIds[i]);
+            }
+            if (isQuantum(tokenIds[i])) _addQuantumToFarm(account, tokenIds[i]);
+            else _addSquirrelToDrey(account, tokenIds[i]);
+        }
+    }
+
+    function _addQuantumToFarm(address account, uint256 tokenId) internal whenNotPaused {
+        farm[tokenId] = Stake({
+            owner: account,
+            tokenId: uint16(tokenId),
+            value: uint80(block.timestamp)
+        });
+        totalQuantumStaked += 1;
+        emit TokenStaked(account, tokenId, block.timestamp);
+    }
+
+    /// @dev Squirrels enter at the current qbtcPerAlpha watermark
+    function _addSquirrelToDrey(address account, uint256 tokenId) internal {
+        uint256 alpha = _alphaForSquirrel(tokenId);
+        totalAlphaStaked += alpha;
+        dreyIndices[tokenId] = drey[alpha].length;
+        drey[alpha].push(Stake({
+            owner: account,
+            tokenId: uint16(tokenId),
+            value: uint80(qbtcPerAlpha)
+        }));
+        emit TokenStaked(account, tokenId, qbtcPerAlpha);
+    }
+
+    /* --------------------------------------------------------- CLAIMING */
+
+    /// @dev claim accrued qBTC without unstaking; a flat 20% is taxed to the Drey
+    function claimManyFromFarmAndDrey(uint16[] calldata tokenIds)
+        external
+        whenNotPaused
+        nonReentrant
+        _updateEarnings
+    {
+        uint256 owed = 0;
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            if (isQuantum(tokenIds[i])) owed += _claimQuantumFromFarm(tokenIds[i], _msgSender(), false, 0);
+            else owed += _claimSquirrelFromDrey(tokenIds[i], _msgSender(), false);
+        }
+        if (owed == 0) return;
+        qbtc.mint(_msgSender(), owed);
+    }
+
+    /**
+     * Step 1 of 2 — request an unstake, pledging the coin flip to a future
+     * block hash. Nothing is settled until `executeExit`.
+     *
+     * Ownership and the 2-day minimum are enforced here and again at
+     * execution, so a commit cannot be used to sidestep either.
+     */
+    function requestExit(uint16[] calldata tokenIds) external whenNotPaused nonReentrant {
+        require(tokenIds.length > 0, "Nothing to exit");
+        require(exitCommits[_msgSender()].tokenIds.length == 0, "Execute your pending exit first");
+
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            uint16 tokenId = tokenIds[i];
+            if (isQuantum(tokenId)) {
+                Stake memory stake = farm[tokenId];
+                require(stake.owner == _msgSender(), "Not your token");
+                require(block.timestamp - stake.value >= MINIMUM_TO_EXIT, "Still mining");
+            } else {
+                uint256 alpha = _alphaForSquirrel(tokenId);
+                require(drey[alpha][dreyIndices[tokenId]].owner == _msgSender(), "Not your token");
+            }
+        }
+
+        uint64 revealBlock = CommitReveal.targetBlock();
+        exitCommits[_msgSender()] = ExitCommit({
+            tokenIds: tokenIds,
+            revealBlock: revealBlock,
+            salt: CommitReveal.salt(_msgSender(), commitNonce++)
+        });
+
+        emit ExitCommitted(_msgSender(), tokenIds.length, revealBlock);
+    }
+
+    /**
+     * Step 2 of 2 — settle the unstake against the committed block hash.
+     *
+     * Permissionless: the flip was decided when `revealBlock` was mined, so
+     * refusing to execute gains nothing and anyone may push a stale exit
+     * through.
+     */
+    function executeExit(address owner) public whenNotPaused nonReentrant _updateEarnings {
+        ExitCommit memory c = exitCommits[owner];
+        require(c.tokenIds.length > 0, "No pending exit");
+
+        uint256 baseSeed = CommitReveal.seed(c.revealBlock, c.salt);
+        delete exitCommits[owner];
+
+        uint256 owed = 0;
+        for (uint256 i = 0; i < c.tokenIds.length; i++) {
+            uint16 tokenId = c.tokenIds[i];
+            if (isQuantum(tokenId)) {
+                owed += _claimQuantumFromFarm(tokenId, owner, true, CommitReveal.derive(baseSeed, i));
+            } else {
+                owed += _claimSquirrelFromDrey(tokenId, owner, true);
+            }
+        }
+
+        if (owed > 0) qbtc.mint(owner, owed);
+        emit ExitRevealed(owner, _msgSender(), owed);
+    }
+
+    /// @dev convenience wrapper for the common self-execute case
+    function executeExit() external {
+        executeExit(_msgSender());
+    }
+
+    /// @dev recovery for an exit left past the 256-block window; a fresh draw
+    function reanchorExit(address owner) external {
+        ExitCommit storage c = exitCommits[owner];
+        require(c.tokenIds.length > 0, "No pending exit");
+        require(CommitReveal.isExpired(c.revealBlock), "Commit still revealable");
+
+        c.revealBlock = CommitReveal.targetBlock();
+        c.salt = CommitReveal.salt(owner, commitNonce++);
+        emit ExitReanchored(owner, c.revealBlock);
+    }
+
+    /**
+     * @param owner the staker; explicit because reveals are permissionless,
+     *              so `_msgSender()` may be a keeper rather than the owner
+     * @param seed  committed randomness for the coin flip; unused when
+     *              `unstake` is false
+     */
+    function _claimQuantumFromFarm(uint256 tokenId, address owner, bool unstake, uint256 seed)
+        internal
+        returns (uint256 owed)
+    {
+        Stake memory stake = farm[tokenId];
+        require(stake.owner == owner, "Not your token");
+        require(
+            !(unstake && block.timestamp - stake.value < MINIMUM_TO_EXIT),
+            "Still mining"
+        );
+
+        if (totalQbtcEarned < MAXIMUM_GLOBAL_QBTC) {
+            owed = ((block.timestamp - stake.value) * DAILY_QBTC_RATE) / 1 days;
+        } else if (stake.value > lastClaimTimestamp) {
+            owed = 0; // staked after the cap was reached
+        } else {
+            owed = ((lastClaimTimestamp - stake.value) * DAILY_QBTC_RATE) / 1 days;
+        }
+
+        if (unstake) {
+            // 50/50: the Drey takes everything. Fixed at commit time.
+            if (seed & 1 == 1) {
+                _paySquirrelTax(owed);
+                owed = 0;
+            }
+            game.transferFrom(address(this), owner, tokenId);
+            delete farm[tokenId];
+            totalQuantumStaked -= 1;
+        } else {
+            _paySquirrelTax((owed * QBTC_CLAIM_TAX_PERCENTAGE) / 100);
+            owed = (owed * (100 - QBTC_CLAIM_TAX_PERCENTAGE)) / 100;
+            farm[tokenId] = Stake({
+                owner: owner,
+                tokenId: uint16(tokenId),
+                value: uint80(block.timestamp)
+            });
+        }
+        emit QuantumClaimed(tokenId, owed, unstake);
+    }
+
+    /// @dev Squirrels are never at risk while staked, so no seed is needed
+    function _claimSquirrelFromDrey(uint256 tokenId, address owner, bool unstake)
+        internal
+        returns (uint256 owed)
+    {
+        require(game.ownerOf(tokenId) == address(this), "Not staked");
+        uint256 alpha = _alphaForSquirrel(tokenId);
+        Stake memory stake = drey[alpha][dreyIndices[tokenId]];
+        require(stake.owner == owner, "Not your token");
+
+        owed = alpha * (qbtcPerAlpha - stake.value);
+
+        if (unstake) {
+            totalAlphaStaked -= alpha;
+            game.transferFrom(address(this), owner, tokenId);
+
+            // swap-and-pop, keeping dreyIndices consistent
+            Stake memory lastStake = drey[alpha][drey[alpha].length - 1];
+            drey[alpha][dreyIndices[tokenId]] = lastStake;
+            dreyIndices[lastStake.tokenId] = dreyIndices[tokenId];
+            drey[alpha].pop();
+            delete dreyIndices[tokenId];
+        } else {
+            drey[alpha][dreyIndices[tokenId]] = Stake({
+                owner: owner,
+                tokenId: uint16(tokenId),
+                value: uint80(qbtcPerAlpha)
+            });
+        }
+        emit SquirrelClaimed(tokenId, owed, unstake);
+    }
+
+    /// @dev emergency unstake, forfeiting yield
+    function rescue(uint16[] calldata tokenIds) external {
+        require(rescueEnabled, "Rescue disabled");
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            uint16 tokenId = tokenIds[i];
+            if (isQuantum(tokenId)) {
+                Stake memory stake = farm[tokenId];
+                require(stake.owner == _msgSender(), "Not your token");
+                game.transferFrom(address(this), _msgSender(), tokenId);
+                delete farm[tokenId];
+                totalQuantumStaked -= 1;
+                emit QuantumClaimed(tokenId, 0, true);
+            } else {
+                uint256 alpha = _alphaForSquirrel(tokenId);
+                Stake memory stake = drey[alpha][dreyIndices[tokenId]];
+                require(stake.owner == _msgSender(), "Not your token");
+                totalAlphaStaked -= alpha;
+                game.transferFrom(address(this), _msgSender(), tokenId);
+
+                Stake memory lastStake = drey[alpha][drey[alpha].length - 1];
+                drey[alpha][dreyIndices[tokenId]] = lastStake;
+                dreyIndices[lastStake.tokenId] = dreyIndices[tokenId];
+                drey[alpha].pop();
+                delete dreyIndices[tokenId];
+                emit SquirrelClaimed(tokenId, 0, true);
+            }
+        }
+    }
+
+    /* --------------------------------------------------------- INTERNAL */
+
+    /// @dev distributes tax across staked alpha; banks it if the Drey is empty
+    function _paySquirrelTax(uint256 amount) internal {
+        if (totalAlphaStaked == 0) {
+            unaccountedRewards += amount;
+            return;
+        }
+        qbtcPerAlpha += (amount + unaccountedRewards) / totalAlphaStaked;
+        unaccountedRewards = 0;
+    }
+
+    modifier _updateEarnings() {
+        if (totalQbtcEarned < MAXIMUM_GLOBAL_QBTC) {
+            totalQbtcEarned +=
+                ((block.timestamp - lastClaimTimestamp) * totalQuantumStaked * DAILY_QBTC_RATE) /
+                1 days;
+            lastClaimTimestamp = block.timestamp;
+        }
+        _;
+    }
+
+    function isQuantum(uint256 tokenId) public view returns (bool) {
+        return game.getTokenTraits(tokenId).isQuantum;
+    }
+
+    /// @dev alpha 8/7/6 for Tier 3/2/1
+    function _alphaForSquirrel(uint256 tokenId) internal view returns (uint8) {
+        return MAX_ALPHA - game.getTokenTraits(tokenId).tierIndex;
+    }
+
+    /**
+     * Picks a staked Squirrel owner, weighted by alpha, to receive a stolen
+     * mint. Higher tiers are proportionally more likely to win.
+     */
+    function randomSquirrelOwner(uint256 seed) external view returns (address) {
+        if (totalAlphaStaked == 0) return address(0x0);
+        uint256 bucket = (seed & 0xFFFFFFFF) % totalAlphaStaked;
+        uint256 cumulative;
+        seed >>= 32;
+        for (uint256 i = MAX_ALPHA - ALPHA_RANKS + 1; i <= MAX_ALPHA; i++) {
+            cumulative += drey[i].length * i;
+            if (bucket >= cumulative) continue;
+            return drey[i][seed % drey[i].length].owner;
+        }
+        return address(0x0);
+    }
+
+    /// @return whether `owner`'s exit request can be executed right now
+    function canExecuteExit(address owner) external view returns (bool) {
+        ExitCommit storage c = exitCommits[owner];
+        return c.tokenIds.length > 0
+            && CommitReveal.isReady(c.revealBlock)
+            && !CommitReveal.isExpired(c.revealBlock);
+    }
+
+    /// @return whether `owner`'s exit request has aged out and needs re-anchoring
+    function needsReanchor(address owner) external view returns (bool) {
+        ExitCommit storage c = exitCommits[owner];
+        return c.tokenIds.length > 0 && CommitReveal.isExpired(c.revealBlock);
+    }
+
+    /// @return the token IDs in `owner`'s pending exit request
+    function pendingExitTokens(address owner) external view returns (uint16[] memory) {
+        return exitCommits[owner].tokenIds;
+    }
+
+    /* ------------------------------------------------------------ ADMIN */
+
+    function setRescueEnabled(bool _enabled) external onlyOwner {
+        rescueEnabled = _enabled;
+    }
+
+    function setPaused(bool _paused) external onlyOwner {
+        if (_paused) _pause();
+        else _unpause();
+    }
+
+    function onERC721Received(address, address from, uint256, bytes calldata)
+        external
+        pure
+        override
+        returns (bytes4)
+    {
+        require(from == address(0x0), "Cannot send tokens directly");
+        return IERC721Receiver.onERC721Received.selector;
+    }
+}

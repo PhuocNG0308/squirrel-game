@@ -1,0 +1,190 @@
+// SPDX-License-Identifier: MIT
+pragma hyperion >=0.0.1;
+
+import "./lib/openzeppelin/access/Ownable.hyp";
+import "./lib/openzeppelin/utils/Strings.hyp";
+import "./lib/openzeppelin/utils/Base64.hyp";
+
+import "./interfaces/ITraits.hyp";
+import "./interfaces/ISquirrelGame.hyp";
+
+/**
+ * Traits — on-chain metadata.
+ *
+ * `tokenURI` returns a base64 `data:` document assembled entirely on chain.
+ * Every attribute is derived from the token's stored traits; only the artwork
+ * is external, since the collection uses one finished image per species and
+ * tier rather than composited layers.
+ *
+ * Trait names are uploaded after deployment rather than compiled in, which
+ * keeps the contract under the bytecode limit and allows relabelling without
+ * redeploying.
+ */
+contract Traits is Ownable, ITraits {
+    using Strings for uint256;
+
+    struct Trait {
+        string name;
+        string value;
+    }
+
+    ISquirrelGame public game;
+
+    /// @dev base URL for artwork, e.g. https://raw.githubusercontent.com/<user>/<repo>/main/assets/
+    string public baseImageURI;
+    string public externalURI;
+
+    /// @dev traitType (0-17) => option index => display value
+    mapping(uint8 => mapping(uint8 => string)) public traitData;
+    /// @dev traitType (0-17) => display name of the trait category
+    mapping(uint8 => string) public traitTypes;
+
+    /// @dev filenames indexed by tier: 0 => Tier 3 (alpha 8) ... 2 => Tier 1
+    string[3] public squirrelImages = [
+        "Squirrel_Tier3.png",
+        "Squirrel_Tier2.png",
+        "Squirrel_Tier1.png"
+    ];
+    string public quantumImage = "QuantumComputer.png";
+
+    constructor(string memory _baseImageURI, string memory _externalURI) {
+        baseImageURI = _baseImageURI;
+        externalURI = _externalURI;
+    }
+
+    /* ------------------------------------------------------------ ADMIN */
+
+    function setGame(address _game) external onlyOwner {
+        game = ISquirrelGame(_game);
+    }
+
+    function setBaseImageURI(string calldata _uri) external onlyOwner {
+        baseImageURI = _uri;
+    }
+
+    function setExternalURI(string calldata _uri) external onlyOwner {
+        externalURI = _uri;
+    }
+
+    /// @dev seeds the display values for one trait slot
+    function uploadTraits(uint8 traitType, uint8[] calldata indices, string[] calldata values)
+        external
+        onlyOwner
+    {
+        require(indices.length == values.length, "Mismatched inputs");
+        for (uint256 i = 0; i < indices.length; i++) {
+            traitData[traitType][indices[i]] = values[i];
+        }
+    }
+
+    /**
+     * Seeds every trait slot in one transaction. The public RPC proxy limits
+     * writes to 10/min, so 18 separate calls would stall deployment.
+     */
+    function uploadTraitsBatch(
+        uint8[] calldata types,
+        uint8[] calldata indices,
+        string[] calldata values
+    ) external onlyOwner {
+        require(
+            types.length == indices.length && types.length == values.length,
+            "Mismatched inputs"
+        );
+        for (uint256 i = 0; i < types.length; i++) {
+            traitData[types[i]][indices[i]] = values[i];
+        }
+    }
+
+    function uploadTraitTypes(uint8[] calldata types, string[] calldata names) external onlyOwner {
+        require(types.length == names.length, "Mismatched inputs");
+        for (uint256 i = 0; i < types.length; i++) {
+            traitTypes[types[i]] = names[i];
+        }
+    }
+
+    /* --------------------------------------------------------- METADATA */
+
+    function imageFor(ISquirrelGame.QuantumSquirrel memory s)
+        public
+        view
+        returns (string memory)
+    {
+        if (s.isQuantum) return string(abi.encodePacked(baseImageURI, quantumImage));
+        return string(abi.encodePacked(baseImageURI, squirrelImages[s.tierIndex]));
+    }
+
+    function attributeForTypeAndValue(string memory traitType, string memory value)
+        internal
+        pure
+        returns (string memory)
+    {
+        return string(abi.encodePacked('{"trait_type":"', traitType, '","value":"', value, '"}'));
+    }
+
+    function compileAttributes(uint256 tokenId) public view returns (string memory) {
+        ISquirrelGame.QuantumSquirrel memory s = game.getTokenTraits(tokenId);
+        uint8 shift = s.isQuantum ? 0 : 9;
+
+        uint8[8] memory values = [
+            s.chassis, s.head, s.ears, s.eyes, s.nose, s.mouth, s.neck, s.feet
+        ];
+
+        string memory traits;
+        for (uint8 i = 0; i < 8; i++) {
+            uint8 slot = i + shift;
+            string memory name = traitTypes[slot];
+            string memory value = traitData[slot][values[i]];
+            if (bytes(value).length == 0) continue; // unpopulated slot, e.g. Shielding
+            traits = string(abi.encodePacked(traits, attributeForTypeAndValue(name, value), ","));
+        }
+
+        if (!s.isQuantum) {
+            // Surfaced as both a label and a numeric alpha so marketplaces
+            // can sort Squirrels by strength.
+            traits = string(abi.encodePacked(
+                traits,
+                attributeForTypeAndValue(traitTypes[17], traitData[17][s.tierIndex]),
+                ',{"trait_type":"Alpha Score","value":',
+                uint256(8 - s.tierIndex).toString(),
+                '},'
+            ));
+        }
+
+        return string(abi.encodePacked(
+            "[",
+            traits,
+            '{"trait_type":"Type","value":"',
+            s.isQuantum ? "Quantum Computer" : "Squirrel",
+            '"},{"trait_type":"Generation","value":"',
+            tokenId <= game.getPaidTokens() ? "Gen 0" : "Gen 1",
+            '"}]'
+        ));
+    }
+
+    function tokenURI(uint256 tokenId) public view override returns (string memory) {
+        ISquirrelGame.QuantumSquirrel memory s = game.getTokenTraits(tokenId);
+
+        string memory name = s.isQuantum
+            ? string(abi.encodePacked("Quantum Computer #", tokenId.toString()))
+            : string(abi.encodePacked(
+                "Squirrel Tier ",
+                uint256(3 - s.tierIndex).toString(),
+                " #",
+                tokenId.toString()
+            ));
+
+        string memory metadata = string(abi.encodePacked(
+            '{"name":"', name,
+            '","description":"Squirrel Game is a fully on-chain yield-farming game living on the QRL Zond (Hyperion) network. Quantum Computers mine qBTC; Squirrels tax and steal it. Nothing here runs on a server.',
+            '","image":"', imageFor(s),
+            '","external_url":"', externalURI,
+            '","attributes":', compileAttributes(tokenId),
+            "}"
+        ));
+
+        return string(abi.encodePacked(
+            "data:application/json;base64,",
+            Base64.encode(bytes(metadata))
+        ));
+    }
+}
