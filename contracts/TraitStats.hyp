@@ -31,27 +31,66 @@ contract TraitStats is Ownable, ITraitStats {
     uint16 public constant GEN_DECAY_RELIEF_BPS = 400;
     uint8 public constant MAX_GEN_SCALING = 8;
 
+    /**
+     * Every table spans both sides of NEUTRAL, so the common roll in a slot is
+     * a genuine flaw rather than merely a smaller bonus.
+     *
+     * Until now the worst possible NFT was exactly average: opening a mint had
+     * no downside, low tiers were high tiers with smaller numbers, and fusion
+     * had nothing to repair — it could only make a good thing better. A rig
+     * that mines well but wears 20% faster is a decision; a rig that is neutral
+     * everywhere is not.
+     *
+     * Array lengths must match the alias tables in SquirrelGame, since the
+     * index is drawn from those. Index order runs common -> rare, and each
+     * table improves monotonically along it.
+     *
+     * Each table is tuned so its PROBABILITY-WEIGHTED MEAN lands on NEUTRAL,
+     * not so index 0 does. That distinction is the whole calibration, and
+     * getting it wrong is not a matter of feel: `fullRateDailyYield` and every
+     * price derived from it (coolant, repair, acorns, firewalls) are computed
+     * from an accumulator that applies no modifiers at all, so they are pinned
+     * to exactly 10000. If the average roll sits below neutral, the typical rig
+     * mines at 0.9x while paying bills priced at 1.0x — a systematic squeeze on
+     * the median player that nobody chose.
+     *
+     * The alias tables put 40-55% of the mass on index 0, so the common roll is
+     * still a genuine penalty and fusion still has something to repair. The
+     * compensation lives in the rare tail, which is what makes chasing it worth
+     * doing. Expected edge per slot is within +/-1% of zero; the distribution
+     * is reproduced by scripts/trait-balance.js.
+     *
+     * INDEX 1 IS EXACTLY NEUTRAL IN EVERY TABLE, and that is load-bearing rather
+     * than tidy. `SquirrelGame._starterRig` mints the starter pack at index 1 in
+     * all four mechanical slots, so a starter rig is precisely the reference
+     * machine the economy is priced against — no better, no worse. An earlier
+     * cut put the penalty at index 0 and the starter loadout at index 0 too,
+     * which handed every new player the strictly worst rig in the collection and
+     * a guided fusion that could not repair it, since both parents were the same
+     * token. Moving either one without the other reintroduces that.
+     */
+
     /* ---------------------------------------------------------- RIG TABLES */
 
     // slot 0 — Chassis: Carbon, Titanium, Obsidian, Cryo-White, Gold-Plated
-    uint16[5] private CHASSIS_DECAY = [10000, 9500, 9000, 8500, 7500];
+    uint16[5] private CHASSIS_DECAY = [10900, 10000, 9700, 9200, 8500];
     // slot 1 — Cooling: Air-Cooled, Liquid Nitrogen, Helium-3, Zero-Point
-    uint16[4] private COOLING_COST = [10000, 9000, 8000, 6500];
+    uint16[4] private COOLING_COST = [10900, 10000, 8800, 6900];
     // slot 4 — Power Core: Fusion Cell, Thorium Core, Antimatter
-    uint16[3] private CORE_HASHRATE = [10000, 10800, 12000];
+    uint16[3] private CORE_HASHRATE = [9400, 10000, 12900];
     // slot 7 — Mounting: Steel Rack, Mag-Lev, Vacuum Cradle
-    uint16[3] private MOUNT_REPAIR = [10000, 9200, 8500];
+    uint16[3] private MOUNT_REPAIR = [10500, 10000, 8050];
 
     /* ----------------------------------------------------- SQUIRREL TABLES */
 
     // slot 10 — Headgear: None, Visor Rig, Hood, Crown
-    uint16[4] private HEADGEAR_TAX = [10000, 10400, 10800, 11500];
+    uint16[4] private HEADGEAR_TAX = [9200, 10000, 10800, 11500];
     // slot 12 — Optics: Green Lens, Violet Lens, Gold Lens
-    uint16[3] private OPTICS_ODDS = [10000, 10800, 12000];
+    uint16[3] private OPTICS_ODDS = [9200, 10000, 12700];
     // slot 15 — Gear: None, Bandolier, Katana Rig, Royal Mantle
-    uint16[4] private GEAR_ENERGY = [10000, 9500, 9000, 8000];
+    uint16[4] private GEAR_ENERGY = [11000, 10000, 9000, 8000];
     // slot 16 — Paws: Bare, Wrapped, Armored, Gilded
-    uint16[4] private PAWS_STEAL = [10000, 10500, 11200, 12500];
+    uint16[4] private PAWS_STEAL = [9100, 10000, 11000, 12200];
 
     constructor(address _game) {
         game = ISquirrelGame(_game);
@@ -85,10 +124,19 @@ contract TraitStats is Ownable, ITraitStats {
         uint256 hashrate = _pick3(CORE_HASHRATE, t.nose);
         hashrate = (hashrate * (10000 + gen * GEN_HASHRATE_BONUS_BPS)) / 10000;
 
+        /**
+         * Generation relief is multiplicative on whatever the chassis rolled,
+         * so it narrows a bad roll rather than erasing it: a Gen 5 rig on the
+         * 12000 chassis lands at 9600 instead of 12000. That is the intended
+         * reading of "later generations are better built" — fusion is how a
+         * flaw gets repaired, which is the point of giving traits a downside.
+         */
         uint256 decay = _pick(CHASSIS_DECAY, t.chassis);
         uint256 relief = gen * GEN_DECAY_RELIEF_BPS;
         decay = relief >= decay ? 1 : (decay * (10000 - relief)) / 10000;
 
+        // hashrate is the one field a table plus the generation bonus could
+        // push past the type; the others are bounded by their tables
         m.hashrateBps = uint16(hashrate > 65535 ? 65535 : hashrate);
         m.decayBps = uint16(decay);
         m.coolantBps = _pick4(COOLING_COST, t.head);
@@ -142,17 +190,22 @@ contract TraitStats is Ownable, ITraitStats {
      * parent's roll a fused rig inherits. Higher wins.
      *
      * Cost-style stats (decay, coolant, repair) are inverted, since a lower
-     * number is the better roll there.
+     * number is the better roll there. Inversion is `20000 - v`, which stays
+     * positive and monotone now that a cost table can reach 12000.
+     *
+     * Reads the same storage tables the modifiers do rather than repeating
+     * them as literals, so retuning a table cannot leave the forge ranking
+     * traits by the old numbers.
      */
-    function traitWeight(uint8 slot, uint8 index) external pure override returns (uint16) {
-        if (slot == 0) return _inv([uint16(10000), 9500, 9000, 8500, 7500][index < 5 ? index : 0]);
-        if (slot == 1) return _inv([uint16(10000), 9000, 8000, 6500][index < 4 ? index : 0]);
-        if (slot == 4) return [uint16(10000), 10800, 12000][index < 3 ? index : 0];
-        if (slot == 7) return _inv([uint16(10000), 9200, 8500][index < 3 ? index : 0]);
-        if (slot == 12) return [uint16(10000), 10800, 12000][index < 3 ? index : 0];
-        if (slot == 16) return [uint16(10000), 10500, 11200, 12500][index < 4 ? index : 0];
-        if (slot == 15) return _inv([uint16(10000), 9500, 9000, 8000][index < 4 ? index : 0]);
-        if (slot == 10) return [uint16(10000), 10400, 10800, 11500][index < 4 ? index : 0];
+    function traitWeight(uint8 slot, uint8 index) external view override returns (uint16) {
+        if (slot == 0) return _inv(_pick(CHASSIS_DECAY, index));
+        if (slot == 1) return _inv(_pick4(COOLING_COST, index));
+        if (slot == 4) return _pick3(CORE_HASHRATE, index);
+        if (slot == 7) return _inv(_pick3(MOUNT_REPAIR, index));
+        if (slot == 10) return _pick4(HEADGEAR_TAX, index);
+        if (slot == 12) return _pick3(OPTICS_ODDS, index);
+        if (slot == 15) return _inv(_pick4(GEAR_ENERGY, index));
+        if (slot == 16) return _pick4(PAWS_STEAL, index);
         // cosmetic-only slots: rarer index wins ties, nothing more
         return uint16(10000 + index);
     }

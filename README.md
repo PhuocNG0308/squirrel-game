@@ -129,10 +129,17 @@ silently drift from the code.
 | Contract | Purpose |
 |---|---|
 | `contracts/QBTC.hyp` | ERC-20 yield token. No premine; only whitelisted controllers mint/burn. |
-| `contracts/SquirrelGame.hyp` | ERC-721. Minting, trait rolling, theft-on-mint. |
-| `contracts/MiningFarm.hyp` | Staking. Farm (miners) + Drey (squirrels), tax accounting. |
+| `contracts/SquirrelGame.hyp` | ERC-721. Minting, trait rolling, theft-on-mint, the starter pack. |
+| `contracts/QuantumFarm.hyp` | Staking. Farm (rigs) + Drey (squirrels), credit, tax, withdrawal. |
+| `contracts/RaidPost.hyp` | Raids and the firewall arms race. |
+| `contracts/SeasonLedger.hyp` | The three season ladders, settled pro-rata per NFT. |
+| `contracts/Quests.hyp` | Daily, weekly and tenure quests — the only day-one income. |
+| `contracts/Fusion.hyp` | The endgame sink, plus the one-time guided fusion. |
+| `contracts/TraitStats.hyp` | Cosmetic traits → mechanical modifiers, both sides of neutral. |
+| `contracts/SquirrelLens.hyp` | Read-only. Every view a client needs, in as few calls as possible. |
 | `contracts/Traits.hyp` | On-chain metadata; base64 `data:` tokenURI. |
 | `contracts/lib/CommitReveal.hyp` | Future-block randomness. Documents the attack it prevents. |
+| `contracts/lib/Ops.hyp` | Pure economics: emission, durability, energy, pricing. |
 | `contracts/lib/openzeppelin/` | Vendored OpenZeppelin 4.9.6, converted to Hyperion. |
 | `contracts/interfaces/` | Cross-contract interfaces. |
 
@@ -201,6 +208,166 @@ npm run verify                 # reads back on-chain state, sends nothing
 
 `deploy.js` writes addresses to `deployments/testnet.json`; `verify.js` reads
 that file and checks code presence, wiring, economics, and metadata seeding.
+
+---
+
+## What a player can collect (`SquirrelLens`)
+
+Opening one player's screen used to cost ~124 `qrl_call` round-trips against a
+proxy capped at 1,000 reads a minute: eleven getters for the global stats, a
+`qrl_getLogs` scan plus two ownership probes per candidate to find staked
+tokens, five reads per token for its sheet, and a full off-chain
+re-implementation of `_settleRig` to answer "what would Claim pay me?".
+
+`SquirrelLens` is a standalone read-only contract that answers all of it:
+
+| Call | Replaces |
+|---|---|
+| `pendingOf(owner)` | the off-chain settlement replay, and 22 round-trips |
+| `stakedOf(owner)` | the log scan and its 5,000-block chunking |
+| `portfolioOf(owner)` | five reads per token, staked and loose alike |
+| `gameStats()` | eleven separate public getters |
+| `creditOf(owner)` | the credit balance and the pending draw in one shape |
+| `mintCosts(from, n)` | one call per token in a mint batch |
+
+It lives apart from `QuantumFarm` because the farm's runtime is within ~1KB of
+the 24,576-byte limit, and view code that never writes state has no business
+spending the last of it. The lens holds no tokens and no permissions, so it can
+be redeployed and extended whenever a client needs a new shape.
+
+`pendingOf` is the one that matters. A client that replays settlement itself
+keeps every constant in `Ops` in two languages, and a change to `_settleRig`
+that is not mirrored shows the player a number the contract will not honour.
+`test/lens.test.js` enforces the property the port could only promise: it
+predicts, claims for real, and requires wei-exact agreement across part-days,
+expired coolant, durability crossing hashrate bands, streaks, a squirrel
+settling behind a rig, and a season boundary.
+
+**Claiming pays a player in credit, not qBTC.** Credit is spendable inside the
+game the instant it settles — coolant, repairs, acorns, patches, firewalls,
+forge fees — with no clock and nothing to reset. It is contract state rather
+than a token, so no third-party wallet can see it; every movement emits an
+event (`CreditEarned`, `CreditSpent`, `WithdrawRequested`, `WithdrawSettled`)
+so an indexer can rebuild the balance.
+
+Turning credit into transferable qBTC is a separate act, and it is three steps
+because it has to be:
+
+```
+requestWithdraw(amount)   # stamps the odds clock, takes a randomness anchor
+settleWithdraw(owner)     # a block later: draws, or re-anchors a dead one
+```
+
+The draw pays a guaranteed floor rising 0% → 60% over three days plus a fixed
+50/50 flip on the remainder. Block hashes survive only 256 blocks (~4.3 h) while
+the odds clock runs for three days, so `settleWithdraw` re-anchors itself when
+it finds a dead anchor and returns without paying — one button, pressed twice,
+a block apart. **`start` is written by `requestWithdraw` and nowhere else**: no
+amount of upkeep, claiming or exiting can restart the clock, which is what makes
+the three-day curve real rather than decorative.
+
+Caps per draw: 5,000 qBTC and 25% of credit, whichever binds first, one request
+outstanding at a time.
+
+There is no 24-hour claim cooldown anywhere in the farm — yield accrues per
+second. The day-shaped rules are elsewhere: `PRIMING_WINDOW` (one free coolant
+day per token), the uptime streak, `MINIMUM_TO_EXIT` (two days, unstaking only),
+`WITHDRAW_WINDOW` (three days, withdrawing only), and `Quests.today()`.
+
+---
+
+## Starting the game (`startGame` and `starterFuse`)
+
+First contact is one signature. `SquirrelGame.startGame()` takes
+`3 × MINT_PRICE` and mints three rigs with a fixed baseline loadout —
+deterministic traits mean no randomness, so no commit/reveal, no second
+transaction, and no re-anchor if the player wanders off for four hours. It also
+opens a 500 qBTC voucher on the farm, released on progress: 200 on the first
+stake, 300 on the first claim, drawn from `ONBOARDING_POOL` rather than from the
+mining pool.
+
+The voucher is spent before earned credit and can never be withdrawn, which is
+what makes a farmed pack worthless: `started` stops one address claiming twice
+and does nothing about one person using two thousand addresses. On mainnet
+`setStarterGate(true)` additionally requires the caller to hold at least 1 QRL.
+
+`Fusion.starterFuse(a, b)` then burns two of the three rigs and rolls
+60% rig / 40% squirrel at `tierIndex = 2`. It is deliberately not `fuse()`:
+`fuse` is same-species, deterministic and previewable, and a client's fusion
+sheet is built on all three. The guided fusion crosses species, so it can only
+state odds — both are public constants. Parents burn at commit, so nothing can
+be sold out from under a pledged outcome, and the third rig keeps mining
+throughout.
+
+It only accepts the pack's own baseline rigs, from an address that bought a
+pack. Without both gates it is a free `fuse()` — same deterministic child, no
+500 qBTC fee — and since addresses are free, a large holder would route every
+fusion through a fresh wallet: buy a pack, walk two good rigs in, forge, walk
+the child out.
+
+---
+
+## Publishing source (explorer verification)
+
+```bash
+npm run publish-source              # every contract in deployments/testnet.json
+npm run publish-source -- QBTC      # one contract
+npm run publish-source -- --force   # re-submit ones already verified
+```
+
+**The node cannot do this.** Source verification is not a JSON-RPC concept, and
+the public proxy confirms it: every candidate method — `qrl_compileHyperion`,
+`qrl_getCompilers`, `qrl_verifyContract`, `qrl_submitSource` — comes back
+`-32601 Method not allowed`. Publishing source is an explorer service.
+
+[ZondScan](https://zondscan.com) provides one, no key and no signup:
+
+| Endpoint | Purpose |
+|---|---|
+| `POST /api/contract/verify` | enqueue a job, returns `jobId` (5 requests/min per IP) |
+| `GET /api/contract/verify/{jobId}` | `pending` → `compiling` → `success` \| `failed` |
+| `GET /api/contract/compiler-info` | selectable hypc builds |
+
+It recompiles server side and byte-matches the result against the on-chain
+runtime code, so two settings must be exact: `compilerVersion` pinned to
+`0.0.2+commit.3e18e55d.Emscripten.clang` (their default is a newer 0.2.0 build
+that rejects `ether` units outright), and the optimizer at `enabled: true,
+runs: 200` to match `compile.js`. Each submission carries only the import
+closure of one contract, keyed by the same paths the compiler saw.
+
+### Current state — 4 of 10 published
+
+Verified: **QBTC**, **Traits**, **TraitStats**, **ChunkedDeployer**.
+
+Failing: **SquirrelGame**, **QuantumFarm**, **RaidPost**, **SeasonLedger**,
+**Quests**, **Fusion** — all with `compile invocation failed: hypc-runner
+produced invalid JSON: unexpected end of JSON input`. That is ZondScan's
+compile worker dying and returning truncated output, not a rejection of our
+payload. It reproduces from a minimal case that has nothing to do with this
+project's size or structure:
+
+- QBTC's 6-file closure verifies, repeatedly.
+- The same 6 files plus `security/ReentrancyGuard.hyp` compile fine (the job
+  gets as far as `bytecode mismatch`, which is the expected answer).
+- The same 6 files plus `security/Pausable.hyp` — 600 bytes smaller — crash the
+  worker every time.
+
+The payload itself is provably right. Compiling `build/verify/QuantumFarm/`
+locally with the pinned build reproduces the on-chain runtime code to the byte —
+same 20,057 bytes, same trailing metadata hash, which covers the content and
+path of every source in the set. The only deltas are five 4-byte slots holding
+`0x6a809cd8`, the deployment timestamp patched into the `immutable` at
+construction. That is worth knowing for later: a naive byte-match would reject
+**SquirrelGame** and **QuantumFarm** over those slots unless ZondScan masks
+immutables. The other four failures declare no immutables and should verify
+cleanly once the worker is fixed.
+
+Payload size, file count, compile time, and output size were each ruled out by
+measurement; flattening to a single file and stripping comments do not help
+either, and both would fail the byte match anyway since hypc 0.0.2 embeds a
+metadata hash of the source layout in the runtime code. The fix belongs on
+ZondScan's side (DigitalGuards); rerun `npm run publish-source` once it lands
+and the six remaining contracts should go through unchanged.
 
 ---
 

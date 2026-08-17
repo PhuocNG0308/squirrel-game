@@ -5,4 +5,7 @@ interface IMiningFarm {
     function addManyToFarmAndDrey(address account, uint16[] calldata tokenIds) external;
 
     function randomSquirrelOwner(uint256 seed) external view returns (address);
+
+    /// @dev opens a starter pack's onboarding voucher; collection-only
+    function openStarterCredit(address account) external;
 }

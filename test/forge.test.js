@@ -48,6 +48,12 @@ async function deployStack() {
   await c.call(farm, OWNER, encodeCall('setRaidPost(address)', ['address'], [post]));
   await c.call(farm, OWNER, encodeCall('setStats(address)', ['address'], [stats]));
   await c.call(post, OWNER, encodeCall('setStats(address)', ['address'], [stats]));
+  // forge fees and firewall points are charged against in-game credit first
+  await c.call(farm, OWNER, encodeCall('setSpender(address,bool)',
+    ['address', 'bool'], [fusion, true]));
+  await c.call(farm, OWNER, encodeCall('setSpender(address,bool)',
+    ['address', 'bool'], [post, true]));
+  await c.call(fusion, OWNER, encodeCall('setFarm(address)', ['address'], [farm]));
   for (const ctrl of [farm, game, post, quests, fusion]) {
     await c.call(qbtc, OWNER, encodeCall('addController(address)', ['address'], [ctrl]));
   }
@@ -109,13 +115,21 @@ const stake = async (c, game, farm, who, ids) => {
 const balanceOf = async (c, qbtc, who) =>
   decodeUint(await c.call(qbtc, OWNER, encodeCall('balanceOf(address)', ['address'], [who])));
 
-/** Mines a staked rig to full vesting so `who` has spendable qBTC. */
+const creditOf = async (c, farm, who) =>
+  decodeUint(await c.call(farm, OWNER, encodeCall('credit(address)', ['address'], [who])));
+
+/**
+ * Mines a staked rig so `who` has spendable in-game credit.
+ *
+ * Still runs nine days total, because callers below lean on the tenure for the
+ * weekly quest — but there is no longer a vesting wait to sit out, so the nine
+ * days are the quest's requirement rather than the token's.
+ */
 async function fund(c, farm, qbtc, who, rigIds) {
   c.advanceTime(DAY);
   await c.call(farm, who, encodeCall('claim(uint16[])', ['uint16[]'], [rigIds]));
   c.advanceTime(8 * DAY);
-  await c.call(farm, who, encodeCall('withdraw()', [], []));
-  return balanceOf(c, qbtc, who);
+  return creditOf(c, farm, who);
 }
 
 /* ------------------------------------------------------------------ MAIN */
@@ -132,11 +146,15 @@ async function main() {
     for (const id of a.rigs) {
       const m = await rigMods(c, stats, id);
       seen.push(m);
+      // Every table spans both sides of NEUTRAL, so the bands do too: the
+      // common roll in a slot is a genuine penalty, not a smaller bonus. The
+      // bands are the exact table extremes — scripts/trait-balance.js is what
+      // checks the shape in between.
       check(`rig #${id} mods are in a sane band`,
-        m.hashrate >= 10000 && m.hashrate <= 13000
-        && m.decay >= 7000 && m.decay <= 10000
-        && m.coolant >= 6000 && m.coolant <= 10000
-        && m.repair >= 8000 && m.repair <= 10000,
+        m.hashrate >= 9400 && m.hashrate <= 12900
+        && m.decay >= 8500 && m.decay <= 10900
+        && m.coolant >= 6900 && m.coolant <= 10900
+        && m.repair >= 8050 && m.repair <= 10500,
         `hash ${m.hashrate} decay ${m.decay} coolant ${m.coolant} repair ${m.repair}`);
     }
     for (let i = 1; i < seen.length; i++) {
@@ -162,7 +180,8 @@ async function main() {
     // one rig funds the forge fee; the other two are the feedstock
     await stake(c, game, farm, ALICE, [a.rigs[0]]);
     const funded = await fund(c, farm, qbtc, ALICE, [a.rigs[0]]);
-    check('forge fee is affordable', funded > 500n * ONE, `${fmt(funded)} qBTC`);
+    check('freshly mined yield can pay the forge fee', funded > 500n * ONE,
+      `${fmt(funded)} qBTC of credit, fee 500`);
 
     let threw = false;
     try {
@@ -187,13 +206,14 @@ async function main() {
 
     const pa = await rigMods(c, stats, a.rigs[1]);
     const pb = await rigMods(c, stats, a.rigs[2]);
-    const before = await balanceOf(c, qbtc, ALICE);
+    const before = await creditOf(c, farm, ALICE);
 
     await c.call(fusion, ALICE, encodeCall('fuse(uint256,uint256)',
       ['uint256', 'uint256'], [a.rigs[1], a.rigs[2]]));
 
-    const spent = before - (await balanceOf(c, qbtc, ALICE));
-    check('the forge fee is burned', spent === 500n * ONE, `${fmt(spent)} qBTC`);
+    const spent = before - (await creditOf(c, farm, ALICE));
+    check('the forge fee comes out of credit', spent === 500n * ONE, `${fmt(spent)} qBTC`);
+    check('and never touched the wallet', (await balanceOf(c, qbtc, ALICE)) === 0n);
 
     const forged = Number(decodeUint(await c.call(game, OWNER, encodeCall('forged()', [], []))));
     const childId = 50000 + forged;
@@ -238,6 +258,171 @@ async function main() {
         ['uint256', 'uint256'], [childId, a.rigs[0]]));
     } catch (e) { threw = true; }
     check('cannot fuse across generations', threw);
+  }
+
+  section('STARTER PACK');
+  {
+    const { c, game, farm, fusion, stats } = await deployStack();
+    const price = decodeUint(await c.call(game, OWNER, encodeCall('MINT_PRICE()', [], [])));
+    const pack = price * 3n;
+
+    let threw = false;
+    try {
+      await c.call(game, ALICE, encodeCall('startGame()', [], []), price);
+    } catch (e) { threw = true; }
+    check('the pack costs exactly three mints', threw);
+
+    await c.call(game, ALICE, encodeCall('startGame()', [], []), pack);
+    const minted = decodeUint(await c.call(game, OWNER, encodeCall('minted()', [], [])));
+    check('one signature mints three rigs, with no reveal', minted === 3n, `${minted} tokens`);
+
+    const k = Number(decodeUint(await c.call(game, OWNER,
+      encodeCall('STARTER_TRAIT_INDEX()', [], []))));
+    for (let id = 1; id <= 3; id++) {
+      const t = await traitsOf(c, game, id);
+      check(`starter token #${id} is a rig at the neutral index`,
+        t.isQuantum && t.chassis === k && t.head === k && t.nose === k && t.feet === k,
+        `chassis ${t.chassis} head ${t.head} nose ${t.nose} feet ${t.feet}`);
+
+      /**
+       * The one that matters. A pack bought with real QRL must be the
+       * reference machine, not the worst machine: index 0 carries the penalty
+       * side of every table, so a loadout built from it would be strictly the
+       * worst rig in the collection — and the guided fusion could not repair
+       * it, since `_combine` takes the better of each slot and both parents
+       * are identical.
+       */
+      const m = await rigMods(c, stats, id);
+      check(`starter token #${id} is exactly neutral on all four stats`,
+        m.hashrate === 10000 && m.decay === 10000
+        && m.coolant === 10000 && m.repair === 10000,
+        `hash ${m.hashrate} wear ${m.decay} coolant ${m.coolant} repair ${m.repair}`);
+
+      const owner = decodeAddress(await c.call(game, OWNER,
+        encodeCall('ownerOf(uint256)', ['uint256'], [id])));
+      check(`starter token #${id} belongs to the player`, owner === ALICE.toLowerCase());
+    }
+
+    threw = false;
+    try { await c.call(game, ALICE, encodeCall('startGame()', [], []), pack); }
+    catch (e) { threw = true; }
+    check('one pack per address', threw);
+
+    // the voucher is opened but pays nothing until the player makes progress
+    const starter = async () => decodeUint(await c.call(farm, OWNER,
+      encodeCall('starterCredit(address)', ['address'], [ALICE])));
+    check('the voucher starts empty', (await starter()) === 0n);
+
+    await stake(c, game, farm, ALICE, [3]);
+    check('200 qBTC unlocks on the first stake', (await starter()) === 200n * ONE,
+      `${fmt(await starter())} qBTC`);
+
+    c.advanceTime(DAY);
+    await c.call(farm, ALICE, encodeCall('claim(uint16[])', ['uint16[]'], [[3]]));
+    check('300 more unlocks on the first claim', (await starter()) === 500n * ONE,
+      `${fmt(await starter())} qBTC`);
+
+    // and it is a voucher: spent before credit, and never withdrawable
+    const voucherBefore = await starter();
+    const creditBefore = await creditOf(c, farm, ALICE);
+    await c.call(farm, ALICE, encodeCall('refuel(uint16[],uint256)',
+      ['uint16[]', 'uint256'], [[3], DAY]));
+    const fromVoucher = voucherBefore - (await starter());
+    const fromCredit = creditBefore - (await creditOf(c, farm, ALICE));
+    check('upkeep drains the voucher before it touches earned credit',
+      fromCredit === 0n || (await starter()) === 0n,
+      `${fmt(fromVoucher)} voucher + ${fmt(fromCredit)} credit`);
+
+    // the withdrawal cap is a share of `credit` alone, so a farmed voucher can
+    // never be turned into a transferable token
+    let leaked = false;
+    try {
+      await c.call(farm, ALICE, encodeCall('requestWithdraw(uint256)',
+        ['uint256'], [(creditBefore / 4n) + (500n * ONE)]));
+      leaked = true;
+    } catch (e) { /* expected */ }
+    check('the voucher does not raise what can be withdrawn', !leaked);
+
+    section('GUIDED FUSION');
+
+    threw = false;
+    try {
+      await c.call(fusion, ALICE, encodeCall('starterFuse(uint16,uint16)',
+        ['uint16', 'uint16'], [1, 3]));
+    } catch (e) { threw = true; }
+    check('cannot feed a staked rig to the guided fusion', threw);
+
+    // Without these two gates the guided fusion is a free `fuse()`, and since
+    // addresses are free a large holder would route every fusion through a
+    // fresh wallet.
+    threw = false;
+    try {
+      await c.call(fusion, BOB, encodeCall('starterFuse(uint16,uint16)',
+        ['uint16', 'uint16'], [1, 2]));
+    } catch (e) { threw = true; }
+    check('an address that never bought a pack cannot use it', threw);
+
+    // Bob buys a pack of his own, then tries to walk in a rolled rig
+    await c.call(game, BOB, encodeCall('startGame()', [], []), pack);
+    const rolled = await acquire(c, game, BOB, 1, 0, { i: 7 });
+    threw = false;
+    try {
+      await c.call(fusion, BOB, encodeCall('starterFuse(uint16,uint16)',
+        ['uint16', 'uint16'], [4, rolled.rigs[0]]));
+    } catch (e) { threw = true; }
+    check('and a bought pack cannot launder a rolled rig through it', threw,
+      `tried #4 with rolled #${rolled.rigs[0]}`);
+
+    const bps = decodeUint(await c.call(fusion, OWNER,
+      encodeCall('STARTER_FUSE_SQUIRREL_BPS()', [], [])));
+    const tier = decodeUint(await c.call(fusion, OWNER,
+      encodeCall('STARTER_FUSE_TIER_INDEX()', [], [])));
+    check('the odds are public, so the screen can state them before signing',
+      bps === 4000n && tier === 2n, `${Number(bps) / 100}% squirrel, tierIndex ${tier}`);
+
+    await c.call(fusion, ALICE, encodeCall('starterFuse(uint16,uint16)',
+      ['uint16', 'uint16'], [1, 2]));
+
+    for (const parent of [1, 2]) {
+      let burned = false;
+      try { await c.call(game, OWNER, encodeCall('ownerOf(uint256)', ['uint256'], [parent])); }
+      catch (e) { burned = true; }
+      check(`parent #${parent} is burned at commit, not at reveal`, burned);
+    }
+
+    threw = false;
+    try { await c.call(fusion, ALICE, encodeCall('settleStarterFuse()', [], [])); }
+    catch (e) { threw = true; }
+    check('cannot settle in the commit block', threw);
+
+    c.advance(2);
+    await c.call(fusion, BOB, encodeCall('settleStarterFuse(address)', ['address'], [ALICE]));
+
+    const forged = Number(decodeUint(await c.call(game, OWNER, encodeCall('forged()', [], []))));
+    const childId = 50000 + forged;
+    const child = await traitsOf(c, game, childId);
+    const owner = decodeAddress(await c.call(game, OWNER,
+      encodeCall('ownerOf(uint256)', ['uint256'], [childId])));
+    check('anyone may settle, and the token goes to the player',
+      forged === 1 && owner === ALICE.toLowerCase(), `#${childId}`);
+    check('a rolled squirrel comes in at the baseline rank',
+      child.isQuantum || child.tierIndex === 2,
+      child.isQuantum ? 'rolled a rig' : `rolled a squirrel, tierIndex ${child.tierIndex}`);
+
+    const gen = decodeUint(await c.call(game, OWNER,
+      encodeCall('generationOf(uint256)', ['uint256'], [childId])));
+    check('the guided fusion still advances a generation', gen === 1n);
+
+    const stillMining = decodeAddress(await c.call(farm, OWNER,
+      encodeCall('rigOwner(uint16)', ['uint16'], [3])));
+    check('the third rig kept mining throughout', stillMining === ALICE.toLowerCase());
+
+    threw = false;
+    try {
+      await c.call(fusion, ALICE, encodeCall('starterFuse(uint16,uint16)',
+        ['uint16', 'uint16'], [childId, 3]));
+    } catch (e) { threw = true; }
+    check('the guided fusion is once per address', threw);
   }
 
   section('QUESTS: DAILY');

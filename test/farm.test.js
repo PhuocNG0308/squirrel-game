@@ -92,10 +92,16 @@ const rigState = async (c, farm, id) => {
   };
 };
 
-const vestingOf = async (c, farm, who) => {
-  const r = await c.call(farm, OWNER, encodeCall('vestingOf(address)', ['address'], [who]));
+const creditOf = async (c, farm, who) =>
+  decodeUint(await c.call(farm, OWNER, encodeCall('credit(address)', ['address'], [who])));
+
+const readU = async (c, to, sig, types = [], vals = []) =>
+  decodeUint(await c.call(to, OWNER, encodeCall(sig, types, vals)));
+
+const pendingDraw = async (c, farm, who) => {
+  const r = await c.call(farm, OWNER, encodeCall('exiting(address)', ['address'], [who]));
   const w = r.replace(/^0x/, '').match(/.{64}/g) || [];
-  return { amount: BigInt('0x' + w[0]), releasable: BigInt('0x' + w[1]), forfeit: BigInt('0x' + w[2]) };
+  return { amount: BigInt('0x' + w[0]), start: BigInt('0x' + w[1]), revealBlock: BigInt('0x' + w[2]) };
 };
 
 const balanceOf = async (c, qbtc, who) =>
@@ -174,7 +180,7 @@ async function main() {
     await stake(c, game, farm, ALICE, aliceRigs);
     c.advanceTime(DAY);
     await c.call(farm, ALICE, encodeCall('claim(uint16[])', ['uint16[]'], [aliceRigs]));
-    const solo = (await vestingOf(c, farm, ALICE)).amount;
+    const solo = await creditOf(c, farm, ALICE);
 
     const bobRigs = await getRigs(c, game, BOB, 3);
     await stake(c, game, farm, BOB, bobRigs);
@@ -194,11 +200,10 @@ async function main() {
     await stake(c, game, farm, ALICE, ids);
     c.advanceTime(DAY);
     await c.call(farm, ALICE, encodeCall('claim(uint16[])', ['uint16[]'], [ids]));
-    c.advanceTime(8 * DAY);
-    await c.call(farm, ALICE, encodeCall('withdraw()', [], []));
-    const funded = await balanceOf(c, qbtc, ALICE);
-    check('vested yield lands in the wallet', funded > 0n, `${fmt(funded)} qBTC`);
+    const funded = await creditOf(c, farm, ALICE);
+    check('settled yield is spendable at once', funded > 0n, `${fmt(funded)} qBTC of credit`);
 
+    c.advanceTime(8 * DAY);
     const before = (await rigState(c, farm, ids[0])).durability;
     let threw = false;
     try {
@@ -207,8 +212,9 @@ async function main() {
     const after = (await rigState(c, farm, ids[0])).durability;
     check('repair restores to full', !threw && after === 100, `${before} -> ${after}`);
 
-    const spent = funded - (await balanceOf(c, qbtc, ALICE));
-    check('repair burns qBTC', spent > 0n, `${fmt(spent)} qBTC burned`);
+    const spent = funded - (await creditOf(c, farm, ALICE));
+    check('repair is paid out of credit, with no wallet balance at all',
+      spent > 0n && (await balanceOf(c, qbtc, ALICE)) === 0n, `${fmt(spent)} qBTC spent`);
   }
 
   section('COOLANT');
@@ -219,7 +225,6 @@ async function main() {
     c.advanceTime(DAY);
     await c.call(farm, ALICE, encodeCall('claim(uint16[])', ['uint16[]'], [ids]));
     c.advanceTime(8 * DAY);
-    await c.call(farm, ALICE, encodeCall('withdraw()', [], []));
 
     let threw = false;
     try {
@@ -234,7 +239,82 @@ async function main() {
     check('a seven-day window puts the rig back to work', st.mining, `durability ${st.durability}`);
   }
 
-  section('VESTING BURNS THE FORFEIT');
+  section('THE FLOOR CURVE');
+  {
+    const { c, farm } = await deployStack();
+    const floor = (elapsed) => readU(c, farm, 'withdrawFloorBps(uint256)', ['uint256'], [elapsed]);
+
+    check('drawing at once guarantees nothing', (await floor(0)) === 0n);
+    check('one day guarantees 20%', (await floor(DAY)) === 2000n);
+    check('two days guarantee 40%', (await floor(2 * DAY)) === 4000n);
+    check('three days guarantee 60%', (await floor(3 * DAY)) === 6000n);
+    check('and it never climbs past 60%', (await floor(30 * DAY)) === 6000n);
+  }
+
+  section('WITHDRAWAL CAPS');
+  {
+    const { c, game, farm } = await deployStack();
+    const ids = await getRigs(c, game, ALICE, 1);
+    await stake(c, game, farm, ALICE, ids);
+    // mine well past 20,000 qBTC, so a quarter of the balance sits above the
+    // absolute cap and the two limits can be told apart
+    c.advanceTime(DAY);
+    await c.call(farm, ALICE, encodeCall('claim(uint16[])', ['uint16[]'], [ids]));
+    await c.call(farm, ALICE, encodeCall('refuel(uint16[],uint256)',
+      ['uint16[]', 'uint256'], [ids, 7 * DAY]));
+    c.advanceTime(7 * DAY);
+    await c.call(farm, ALICE, encodeCall('claim(uint16[])', ['uint16[]'], [ids]));
+    const balance = await creditOf(c, farm, ALICE);
+    check('a week of mining clears 20,000 qBTC of credit', balance > 20000n * ONE,
+      `${fmt(balance)} qBTC`);
+
+    const request = async (amount) => {
+      try {
+        await c.call(farm, ALICE, encodeCall('requestWithdraw(uint256)', ['uint256'], [amount]));
+        return null;
+      } catch (e) { return e.message; }
+    };
+
+    check('a quarter of the balance is refused once it passes 5,000 qBTC',
+      (await request(balance / 4n)) !== null, `${fmt(balance / 4n)} of ${fmt(balance)}`);
+    check('and so is anything above 5,000 qBTC', (await request(5001n * ONE)) !== null);
+    check('a draw inside both caps is accepted', (await request(5000n * ONE)) === null);
+    check('the credit leaves the balance the moment it is requested',
+      (await creditOf(c, farm, ALICE)) === balance - 5000n * ONE);
+    check('only one request may be outstanding', (await request(1000n * ONE)) !== null);
+  }
+
+  section('UPKEEP NEVER RESTARTS THE CLOCK');
+  {
+    // The defect this whole model replaces: the old escrow restarted its
+    // seven-day clock on every settlement, so an active player could never
+    // reach a full payout. Only requestWithdraw may write `start`.
+    const { c, game, farm } = await deployStack();
+    const ids = await getRigs(c, game, ALICE, 1);
+    await stake(c, game, farm, ALICE, ids);
+    c.advanceTime(DAY);
+    await c.call(farm, ALICE, encodeCall('claim(uint16[])', ['uint16[]'], [ids]));
+
+    await c.call(farm, ALICE, encodeCall('requestWithdraw(uint256)', ['uint256'], [1000n * ONE]));
+    const opened = (await pendingDraw(c, farm, ALICE)).start;
+
+    // three days of ordinary play: refuel, claim, refuel again
+    for (let d = 0; d < 3; d++) {
+      await c.call(farm, ALICE, encodeCall('refuel(uint16[],uint256)',
+        ['uint16[]', 'uint256'], [ids, DAY]));
+      c.advanceTime(DAY);
+      await c.call(farm, ALICE, encodeCall('claim(uint16[])', ['uint16[]'], [ids]));
+    }
+
+    const after = await pendingDraw(c, farm, ALICE);
+    check('three days of upkeep left the clock alone', after.start === opened,
+      `started at ${opened}, still ${after.start}`);
+    check('so the guarantee has reached its maximum',
+      (await readU(c, farm, 'withdrawFloorBps(uint256)', ['uint256'],
+        [Number(BigInt(c.timestamp) - opened)])) === 6000n);
+  }
+
+  section('THE DRAW');
   {
     const { c, game, farm, qbtc } = await deployStack();
     const ids = await getRigs(c, game, ALICE, 1);
@@ -242,23 +322,120 @@ async function main() {
     c.advanceTime(DAY);
     await c.call(farm, ALICE, encodeCall('claim(uint16[])', ['uint16[]'], [ids]));
 
-    const v0 = await vestingOf(c, farm, ALICE);
-    check('nothing is releasable immediately', v0.releasable === 0n, `${fmt(v0.releasable)}`);
-    check('the whole claim would be forfeited', near(v0.forfeit, v0.amount, 1),
-      `${fmt(v0.forfeit)} of ${fmt(v0.amount)}`);
+    const AMOUNT = 1000n * ONE;
+    await c.call(farm, ALICE, encodeCall('requestWithdraw(uint256)', ['uint256'], [AMOUNT]));
 
+    let threw = false;
+    try { await c.call(farm, ALICE, encodeCall('settleWithdraw()', [], [])); }
+    catch (e) { threw = true; }
+    check('cannot settle in the block the draw was requested', threw);
+
+    // Wait out the window, then settle: floor is 60%, so the flip decides
+    // between 600 and 1000 and nothing worse. Three days is far past the
+    // 256-block anchor, so the first press only re-anchors.
     c.advanceTime(3 * DAY);
-    const v3 = await vestingOf(c, farm, ALICE);
-    check('about 3/7 releasable after three days',
-      near(v3.releasable, (v0.amount * 3n) / 7n, 5),
-      `${fmt(v3.releasable)} of ${fmt(v0.amount)}`);
+    const walletBefore = await balanceOf(c, qbtc, ALICE);
+    await c.call(farm, BOB, encodeCall('settleWithdraw(address)', ['address'], [ALICE]));
+    c.advance(2);
+    await c.call(farm, BOB, encodeCall('settleWithdraw(address)', ['address'], [ALICE]));
+    const paid = (await balanceOf(c, qbtc, ALICE)) - walletBefore;
 
-    await c.call(farm, ALICE, encodeCall('withdraw()', [], []));
-    const got = await balanceOf(c, qbtc, ALICE);
-    check('early withdrawal pays only the vested share',
-      near(got, v3.releasable, 5), `received ${fmt(got)}`);
-    check('the unvested share was not minted', got < v0.amount,
-      `${fmt(v0.amount - got)} qBTC never issued`);
+    check('anyone may settle, and it pays the owner not the caller',
+      paid > 0n && (await balanceOf(c, qbtc, BOB)) === 0n, `${fmt(paid)} qBTC`);
+    check('a patient draw pays either the floor or the lot',
+      paid === AMOUNT || paid === (AMOUNT * 6000n) / 10000n,
+      `${fmt(paid)} of ${fmt(AMOUNT)}`);
+    check('the request is consumed', (await pendingDraw(c, farm, ALICE)).amount === 0n);
+  }
+
+  section('A LOST DRAW IS HALF BURNED, HALF FED TO THE DREY');
+  {
+    // Paying the whole loss to the Drey refunds a large holder most of their
+    // own loss, which is the hole the split closes. Both halves are checked on
+    // whichever attempt the coin flip goes against.
+    const { c, game, farm, qbtc } = await deployStack();
+    const ids = await getRigs(c, game, ALICE, 1);
+    let squirrel = 0;
+    const supply = Number(decodeUint(await c.call(game, OWNER, encodeCall('minted()', [], []))));
+    for (let id = 1; id <= supply && !squirrel; id++) {
+      const t = await traitsOf(c, game, id);
+      const o = decodeAddress(await c.call(game, OWNER,
+        encodeCall('ownerOf(uint256)', ['uint256'], [id])));
+      if (!t.isQuantum && o === ALICE.toLowerCase()) squirrel = id;
+    }
+    await stake(c, game, farm, ALICE, squirrel ? [...ids, squirrel] : ids);
+    c.advanceTime(DAY);
+    await c.call(farm, ALICE, encodeCall('claim(uint16[])', ['uint16[]'], [ids]));
+
+    const AMOUNT = 1000n * ONE;
+    let sawWin = false, sawLoss = false, checked = false;
+    for (let attempt = 0; attempt < 12 && !(sawWin && sawLoss); attempt++) {
+      if ((await creditOf(c, farm, ALICE)) < AMOUNT * 4n) break;
+      await c.call(farm, ALICE, encodeCall('requestWithdraw(uint256)', ['uint256'], [AMOUNT]));
+      c.advance(2);
+
+      const burnedBefore = await readU(c, farm, 'totalBurned()');
+      const dreyBefore = await readU(c, farm, 'qbtcPerAlpha()');
+      const unaccountedBefore = await readU(c, farm, 'unaccountedTax()');
+      const walletBefore = await balanceOf(c, qbtc, ALICE);
+      await c.call(farm, ALICE, encodeCall('settleWithdraw()', [], []));
+      const paid = (await balanceOf(c, qbtc, ALICE)) - walletBefore;
+
+      if (paid === AMOUNT) { sawWin = true; continue; }
+      sawLoss = true;
+      if (checked) continue;
+      checked = true;
+
+      // Drawn two blocks after the request, so the floor has barely left zero:
+      // the impatient path keeps essentially nothing when the flip goes against
+      // it, which is the whole reason the floor exists for everyone else.
+      const lost = AMOUNT - paid;
+      check('a draw taken at once keeps next to nothing', paid < AMOUNT / 100n,
+        `${fmt(paid)} paid, ${fmt(lost)} lost`);
+      check('half of the loss is burned',
+        (await readU(c, farm, 'totalBurned()')) - burnedBefore === lost / 2n,
+        `${fmt(lost / 2n)} qBTC`);
+      const toDrey = squirrel
+        ? (await readU(c, farm, 'qbtcPerAlpha()')) - dreyBefore
+        : (await readU(c, farm, 'unaccountedTax()')) - unaccountedBefore;
+      check('and the other half is handed to the Drey rather than destroyed',
+        toDrey > 0n, squirrel ? `${fmt(toDrey)} per alpha` : `${fmt(toDrey)} qBTC held for the Drey`);
+    }
+    check('both outcomes of the coin flip occur', sawWin && sawLoss,
+      `win ${sawWin}, loss ${sawLoss}`);
+  }
+
+  section('A DEAD ANCHOR RE-ANCHORS ITSELF');
+  {
+    // Block hashes survive 256 blocks (~4.3h) while the odds clock runs three
+    // days, so the anchor MUST be re-takeable — and re-taking it must not touch
+    // the odds clock, or the curve is decorative.
+    const { c, game, farm, qbtc } = await deployStack();
+    const ids = await getRigs(c, game, ALICE, 1);
+    await stake(c, game, farm, ALICE, ids);
+    c.advanceTime(DAY);
+    await c.call(farm, ALICE, encodeCall('claim(uint16[])', ['uint16[]'], [ids]));
+
+    const AMOUNT = 1000n * ONE;
+    await c.call(farm, ALICE, encodeCall('requestWithdraw(uint256)', ['uint256'], [AMOUNT]));
+    const opened = await pendingDraw(c, farm, ALICE);
+
+    c.advanceTime(3 * DAY); // far past the 256-block window
+    const walletBefore = await balanceOf(c, qbtc, ALICE);
+    await c.call(farm, ALICE, encodeCall('settleWithdraw()', [], []));
+    const midway = await pendingDraw(c, farm, ALICE);
+
+    check('the first press re-anchors and pays nothing',
+      midway.amount === AMOUNT && (await balanceOf(c, qbtc, ALICE)) === walletBefore);
+    check('on a fresh block hash', midway.revealBlock > opened.revealBlock,
+      `${opened.revealBlock} -> ${midway.revealBlock}`);
+    check('and the odds clock is untouched', midway.start === opened.start);
+
+    c.advance(2);
+    await c.call(farm, ALICE, encodeCall('settleWithdraw()', [], []));
+    const paid = (await balanceOf(c, qbtc, ALICE)) - walletBefore;
+    check('the second press draws, at the full three-day terms',
+      paid === AMOUNT || paid === (AMOUNT * 6000n) / 10000n, `${fmt(paid)} qBTC`);
   }
 
   section('SQUIRREL TAX & ENERGY');

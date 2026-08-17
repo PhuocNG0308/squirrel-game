@@ -39,7 +39,7 @@ async function main() {
   console.log('base URI :', BASE_IMAGE_URI);
   console.log();
 
-  const step = (n, label) => console.log(`[${n}/10] ${label}`);
+  const step = (n, label) => console.log(`[${n}/11] ${label}`);
   const at = (name, c) => console.log(`       ${name.padEnd(14)} ${c.options.address}`);
 
   /**
@@ -100,7 +100,13 @@ async function main() {
   const fusion = await put('Fusion', [game.options.address, stats.options.address, qbtc.options.address], 3000000);
   at('Fusion', fusion);
 
-  step(10, 'wiring');
+  step(10, 'SquirrelLens');
+  const lens = await put('SquirrelLens', [
+    game.options.address, farm.options.address, post.options.address, stats.options.address,
+  ], 8000000);
+  at('SquirrelLens', lens);
+
+  step(11, 'wiring');
   /**
    * Signs locally rather than letting web3 choose a path.
    *
@@ -127,6 +133,12 @@ async function main() {
   await wire('farm.setRaidPost', F, farm.methods.setRaidPost(P));
   await wire('farm.setStats', F, farm.methods.setStats(stats.options.address));
   await wire('post.setStats', P, post.methods.setStats(stats.options.address));
+
+  // Contracts allowed to charge a fee against a player's in-game credit, and
+  // the forge's back-reference so it can do so.
+  await wire('farm.setSpender fusion', F, farm.methods.setSpender(fusion.options.address, true));
+  await wire('farm.setSpender raidPost', F, farm.methods.setSpender(P, true));
+  await wire('fusion.setFarm', fusion.options.address, fusion.methods.setFarm(F));
 
   // Every contract that mints or burns qBTC needs the controller role.
   for (const [label, addr] of [
@@ -172,6 +184,7 @@ async function main() {
       SeasonLedger: ledger.options.address,
       Quests: quests.options.address,
       Fusion: fusion.options.address,
+      SquirrelLens: lens.options.address,
     },
   };
   saveDeployment(deployment);

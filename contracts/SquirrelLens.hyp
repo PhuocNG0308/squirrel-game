@@ -1,0 +1,336 @@
+// SPDX-License-Identifier: MIT
+pragma hyperion >=0.0.1;
+
+import "./lib/Ops.hyp";
+
+import "./interfaces/ISquirrelGame.hyp";
+import "./interfaces/ITraitStats.hyp";
+import "./SquirrelGame.hyp";
+import "./QuantumFarm.hyp";
+import "./RaidPost.hyp";
+
+/**
+ * SquirrelLens — every read a client needs, in as few calls as possible.
+ *
+ * Opening one player's screen used to cost ~124 `qrl_call` round-trips against
+ * a proxy capped at 1,000 reads a minute: eleven getters for the global stats,
+ * a log scan plus two ownership probes per candidate to find staked tokens,
+ * five reads per token for its sheet, and a full off-chain re-implementation of
+ * `_settleRig` to answer "what would Claim pay me?".
+ *
+ * That last one is the reason this contract exists rather than a client-side
+ * library. Replaying settlement off chain means every constant in Ops lives in
+ * two languages, and a change to `_settleRig` that is not mirrored shows the
+ * player a number the contract will not honour. `pendingOf` reads the same
+ * storage and runs the same library, so it cannot drift.
+ *
+ * Deployed standalone and reading only through public getters, because
+ * QuantumFarm's runtime is within ~1KB of the 24,576-byte limit and view code
+ * that never writes state has no business spending the last of it. The lens can
+ * be redeployed and extended whenever a client needs a new shape, with no
+ * migration of game state and nothing at risk: it holds no tokens and no
+ * permissions.
+ */
+contract SquirrelLens {
+    SquirrelGame public immutable game;
+    QuantumFarm public immutable farm;
+    RaidPost public immutable raidPost;
+    ITraitStats public immutable stats;
+
+    struct TokenView {
+        uint16 tokenId;
+        bool isQuantum;
+        uint8 generation;
+        uint8 alpha;
+        bool staked;
+        uint8 durability;
+        uint40 fuelExpiry;
+        uint32 streakDays;
+        bool mining;
+        uint8 energy;
+        uint8 firewall;
+        uint16 hashrateBps;
+        uint16 wearBps;
+        uint16 coolantBps;
+        uint16 repairBps;
+        uint16 energyBps;
+        uint16 taxBps;
+    }
+
+    struct GameStats {
+        uint256 minted;
+        uint256 maxTokens;
+        uint256 paidTokens;
+        uint256 mintPrice;
+        uint256 totalMined;
+        uint256 totalBurned;
+        uint256 totalHashrate;
+        uint256 totalRigsStaked;
+        uint256 totalAlphaStaked;
+        uint256 qbtcPerAlpha;
+        uint256 season;
+        uint256 fullRateDailyYield;
+        uint256 onboardingPaid;
+        uint256 starterPacksLeft;
+    }
+
+    struct CreditView {
+        uint256 credit;
+        uint256 starterCredit;
+        uint256 walletBalance;
+        uint8 starterFlags;
+        // the pending draw, if any
+        uint256 drawAmount;
+        uint256 drawGuaranteed;      // paid even if the flip is lost, right now
+        uint256 drawGuaranteedAtEnd; // what the floor reaches after the window
+        uint40 drawStart;
+        bool drawReady;              // the anchor is mined and still readable
+        bool drawNeedsReanchor;      // settle once to re-anchor, once to draw
+    }
+
+    constructor(address _game, address _farm, address _raidPost, address _stats) {
+        game = SquirrelGame(_game);
+        farm = QuantumFarm(_farm);
+        raidPost = RaidPost(_raidPost);
+        stats = ITraitStats(_stats);
+    }
+
+    /* ------------------------------------------------------------ GLOBAL */
+
+    function gameStats() external view returns (GameStats memory s) {
+        s.minted = game.minted();
+        s.maxTokens = game.MAX_TOKENS();
+        s.paidTokens = game.PAID_TOKENS();
+        s.mintPrice = game.MINT_PRICE();
+        s.totalMined = farm.totalMined();
+        s.totalBurned = farm.totalBurned();
+        s.totalHashrate = farm.totalHashrate();
+        s.totalRigsStaked = farm.totalRigsStaked();
+        s.totalAlphaStaked = farm.totalAlphaStaked();
+        s.qbtcPerAlpha = farm.qbtcPerAlpha();
+        s.season = farm.seasonNow();
+        s.fullRateDailyYield = farm.fullRateDailyYield();
+
+        s.onboardingPaid = farm.onboardingPaid();
+        uint256 pool = farm.ONBOARDING_POOL();
+        uint256 room = pool > s.onboardingPaid ? pool - s.onboardingPaid : 0;
+        s.starterPacksLeft = room / (farm.STARTER_GRANT_STAKE() + farm.STARTER_GRANT_CLAIM());
+    }
+
+    /// @dev the qBTC ladder for a batch, which used to be one call per token
+    function mintCosts(uint256 from, uint256 count) external view returns (uint256[] memory out) {
+        out = new uint256[](count);
+        for (uint256 i = 0; i < count; i++) out[i] = game.mintCost(from + i);
+    }
+
+    /* ------------------------------------------------------------ CREDIT */
+
+    function creditOf(address owner) external view returns (CreditView memory v) {
+        v.credit = farm.credit(owner);
+        v.starterCredit = farm.starterCredit(owner);
+        v.walletBalance = farm.qbtc().balanceOf(owner);
+        v.starterFlags = farm.starterFlags(owner);
+
+        (uint128 amount, uint40 start, uint64 revealBlock, ) = farm.exiting(owner);
+        if (amount == 0) return v;
+
+        v.drawAmount = amount;
+        v.drawStart = start;
+        v.drawGuaranteed =
+            (uint256(amount) * farm.withdrawFloorBps(block.timestamp - start)) / 10000;
+        v.drawGuaranteedAtEnd = (uint256(amount) * farm.WITHDRAW_FLOOR_END()) / 10000;
+
+        bool expired = revealBlock != 0 && block.number > revealBlock + 256;
+        v.drawNeedsReanchor = expired;
+        v.drawReady = !expired && block.number > revealBlock;
+    }
+
+    /* ----------------------------------------------------------- PENDING */
+
+    /**
+     * What `claim` would pay right now, per token and in total.
+     *
+     * Mirrors `_settleRig` and `_settleGuard` exactly, including the fuel
+     * proration and the 20% Drey tax, so the number on the Claim button is the
+     * number the contract honours.
+     *
+     * One approximation, and it only ever reports too much: the MINING_POOL
+     * headroom clamp is evaluated against `totalMined` as it stands, whereas a
+     * real settlement consumes headroom rig by rig. The two differ only in the
+     * final moments of the emission pool.
+     */
+    function pendingOf(address owner)
+        external
+        view
+        returns (uint256 total, uint16[] memory ids, uint256[] memory nets)
+    {
+        ids = farm.stakedOf(owner);
+        nets = new uint256[](ids.length);
+        uint256 acc = _accNow();
+        for (uint256 i = 0; i < ids.length; i++) {
+            nets[i] = _pendingFor(ids[i], acc);
+            total += nets[i];
+        }
+    }
+
+    function pendingOfTokens(uint16[] calldata tokenIds)
+        external
+        view
+        returns (uint256 total, uint256[] memory nets)
+    {
+        nets = new uint256[](tokenIds.length);
+        uint256 acc = _accNow();
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            nets[i] = _pendingFor(tokenIds[i], acc);
+            total += nets[i];
+        }
+    }
+
+    /// @dev the accumulator as `_updateAcc` would leave it in this block
+    function _accNow() internal view returns (uint256 acc) {
+        acc = farm.accPerHash();
+        uint256 last = farm.lastAccUpdate();
+        uint256 hash = farm.totalHashrate();
+        if (block.timestamp <= last || hash == 0) return acc;
+
+        uint256 genesis = farm.genesis();
+        uint256 emission = Ops.emissionBetween(last - genesis, block.timestamp - genesis);
+        uint256 mined = farm.totalMined();
+        uint256 headroom = Ops.MINING_POOL > mined ? Ops.MINING_POOL - mined : 0;
+        if (emission > headroom) emission = headroom;
+        if (emission > 0) acc += (emission * Ops.PRECISION) / hash;
+    }
+
+    function _pendingFor(uint16 tokenId, uint256 acc) internal view returns (uint256) {
+        if (game.getTokenTraits(tokenId).isQuantum) return _pendingRig(tokenId, acc);
+        return _pendingGuard(tokenId);
+    }
+
+    function _pendingRig(uint16 tokenId, uint256 acc) internal view returns (uint256) {
+        (
+            address owner,
+            ,
+            uint8 durability,
+            uint40 lastSettled,
+            uint32 streakDays,
+            uint40 fuelExpiry,
+            ,
+            ,
+            uint128 rewardDebt
+        ) = farm.rigs(tokenId);
+        if (owner == address(0) || durability == 0) return 0;
+
+        uint256 to = block.timestamp;
+        if (to <= lastSettled) return 0;
+        uint256 fuelledTo = fuelExpiry < to ? fuelExpiry : to;
+        if (fuelledTo <= lastSettled) return 0;
+
+        uint256 fuelled = fuelledTo - lastSettled;
+        ITraitStats.RigMods memory mods = stats.rigMods(tokenId);
+
+        uint256 gross = ((acc - rewardDebt)
+            * ((Ops.averageHashrate(durability, fuelled) * mods.hashrateBps) / 10000))
+            / Ops.PRECISION;
+        gross = (gross * fuelled) / (to - lastSettled);
+        gross = (gross * Ops.streakMultiplier(streakDays)) / Ops.PRECISION;
+
+        uint256 mined = farm.totalMined();
+        uint256 headroom = Ops.MINING_POOL > mined ? Ops.MINING_POOL - mined : 0;
+        if (gross > headroom) gross = headroom;
+
+        return gross - (gross * Ops.TAX_PCT) / 100;
+    }
+
+    function _pendingGuard(uint16 tokenId) internal view returns (uint256) {
+        uint256 alpha = farm.MAX_ALPHA() - game.getTokenTraits(tokenId).tierIndex;
+        (address owner, , uint8 energy, uint40 lastSettled, uint32 patchSeason, uint128 taxDebt) =
+            farm.drey(alpha, farm.dreyIndices(tokenId));
+        if (owner == address(0)) return 0;
+
+        ITraitStats.SquirrelMods memory mods = stats.squirrelMods(tokenId);
+        uint256 elapsed = ((block.timestamp - lastSettled) * mods.energyBps) / 10000;
+        uint256 share = Ops.taxShareMultiplier(Ops.energyAfter(energy, elapsed));
+
+        uint256 season = farm.seasonNow();
+        uint256 rank = Ops.rankMultiplier(season > patchSeason ? season - patchSeason : 0);
+
+        uint256 owed = alpha * (farm.qbtcPerAlpha() - taxDebt);
+        uint256 net = (((owed * share) / Ops.PRECISION) * rank) / Ops.PRECISION;
+        return (net * mods.taxBps) / 10000;
+    }
+
+    /* --------------------------------------------------------- PORTFOLIO */
+
+    /// @dev staked tokens without a log scan; a plain proxy, kept for symmetry
+    function stakedOf(address owner) external view returns (uint16[] memory) {
+        return farm.stakedOf(owner);
+    }
+
+    /**
+     * Every token a player holds, staked or not, with its full sheet.
+     *
+     * A staked token is owned by the farm and so leaves the ERC-721 enumerable
+     * set; the two halves are read from different places and stitched here.
+     */
+    function portfolioOf(address owner) external view returns (TokenView[] memory out) {
+        uint16[] memory staked = farm.stakedOf(owner);
+        uint256 loose = game.balanceOf(owner);
+
+        out = new TokenView[](staked.length + loose);
+        for (uint256 i = 0; i < staked.length; i++) {
+            out[i] = tokenView(staked[i]);
+        }
+        for (uint256 i = 0; i < loose; i++) {
+            out[staked.length + i] = tokenView(uint16(game.tokenOfOwnerByIndex(owner, i)));
+        }
+    }
+
+    function tokenViews(uint16[] calldata tokenIds) external view returns (TokenView[] memory out) {
+        out = new TokenView[](tokenIds.length);
+        for (uint256 i = 0; i < tokenIds.length; i++) out[i] = tokenView(tokenIds[i]);
+    }
+
+    function tokenView(uint16 tokenId) public view returns (TokenView memory v) {
+        ISquirrelGame.QuantumSquirrel memory t = game.getTokenTraits(tokenId);
+        v.tokenId = tokenId;
+        v.isQuantum = t.isQuantum;
+        v.generation = game.generationOf(tokenId);
+
+        if (t.isQuantum) {
+            _fillRig(v, tokenId);
+        } else {
+            _fillGuard(v, tokenId, t.tierIndex);
+        }
+    }
+
+    function _fillRig(TokenView memory v, uint16 tokenId) internal view {
+        ITraitStats.RigMods memory m = stats.rigMods(tokenId);
+        v.hashrateBps = m.hashrateBps;
+        v.wearBps = m.decayBps;
+        v.coolantBps = m.coolantBps;
+        v.repairBps = m.repairBps;
+        v.firewall = raidPost.firewallOf(tokenId);
+
+        (uint8 durability, uint256 fuelExpiry, uint32 streakDays, bool mining) =
+            farm.rigState(tokenId);
+        v.staked = farm.rigOwner(tokenId) != address(0);
+        if (!v.staked) return;
+        v.durability = durability;
+        v.fuelExpiry = uint40(fuelExpiry);
+        v.streakDays = streakDays;
+        v.mining = mining;
+    }
+
+    function _fillGuard(TokenView memory v, uint16 tokenId, uint8 tierIndex) internal view {
+        ITraitStats.SquirrelMods memory m = stats.squirrelMods(tokenId);
+        v.hashrateBps = m.raidOddsBps;
+        v.wearBps = m.stealBps;
+        v.energyBps = m.energyBps;
+        v.taxBps = m.taxBps;
+        v.alpha = farm.MAX_ALPHA() - tierIndex;
+
+        (address guardOwner, uint8 energy) = farm.guardOwner(tokenId);
+        v.staked = guardOwner != address(0);
+        if (v.staked) v.energy = energy;
+    }
+}

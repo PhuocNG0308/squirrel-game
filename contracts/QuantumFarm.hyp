@@ -25,7 +25,15 @@ import "./QBTC.hyp";
  * is what lets a hard 21,000,000 cap coexist with an open player count — a
  * flat per-rig rate would exhaust the cap in days at full participation.
  *
- * Claimed qBTC vests over 7 days; withdrawing early burns the unvested share.
+ * Yield settles into `credit`: spendable inside the game the instant it is
+ * earned, never transferable. Turning credit into ERC-20 qBTC is a separate,
+ * deliberate act — `requestWithdraw` then `settleWithdraw` — which pays a
+ * guaranteed floor that grows over three days plus a 50/50 draw on the rest.
+ *
+ * The earlier design vested at claim time and restarted the clock on every
+ * settlement, which meant an active player could never reach a full payout and
+ * could not spend a single qBTC of what they had mined. Both defects are the
+ * same defect: the lock was attached to earning rather than to leaving.
  */
 contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
     using CommitReveal for uint64;
@@ -54,15 +62,25 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
         uint128 taxDebt;      // qbtcPerAlpha watermark
     }
 
-    /// @dev a claim in escrow, released linearly over VESTING_PERIOD
-    struct Vesting {
-        uint128 amount;
-        uint40 start;
-    }
-
     /// @dev pending unstake; the 50/50 roll is pledged a block ahead
     struct ExitCommit {
         uint16[] tokenIds;
+        uint64 revealBlock;
+        uint256 salt;
+    }
+
+    /**
+     * A credit balance on its way out to the ERC-20.
+     *
+     * `start` is the odds clock and is written exactly once, by
+     * `requestWithdraw`. `revealBlock` is the randomness anchor and is
+     * re-takeable, because block hashes survive only 256 blocks (~4.3 h) while
+     * the odds clock runs for three days. Conflating the two would make the
+     * curve decorative — see lib/CommitReveal.hyp.
+     */
+    struct Withdrawal {
+        uint128 amount;
+        uint40 start;
         uint64 revealBlock;
         uint256 salt;
     }
@@ -72,6 +90,59 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
     uint8 public constant MAX_ALPHA = 8;
     uint8 public constant ALPHA_RANKS = 3;
     uint256 public constant MINIMUM_TO_EXIT = 2 days;
+
+    /**
+     * Withdrawal terms.
+     *
+     * A guaranteed floor rising 0% -> 60% over three days, plus a fixed 50/50
+     * draw on whatever the floor does not already cover. Expected value runs
+     * 50% at once to 80% after the full window, and a player who waits can no
+     * longer be zeroed — the all-or-nothing version could, which reads as the
+     * app deleting a balance rather than as a bet.
+     *
+     *   EV = floor + 0.5 * (1 - floor)
+     *
+     * WITHDRAW_FLOOR_START is deliberately zero: drawing immediately keeps a
+     * zero outcome, because that is the impatient path. Raising it lifts EV(0)
+     * with it, which is one constant if that trade is ever wanted.
+     */
+    uint256 public constant WITHDRAW_WINDOW = 3 days;
+    uint256 public constant WITHDRAW_FLOOR_START = 0;
+    uint256 public constant WITHDRAW_FLOOR_END = 6000;
+    uint256 public constant WITHDRAW_DRAW_BPS = 5000;
+    /**
+     * Half of a lost draw is burned, half feeds the Drey.
+     *
+     * Paying the whole loss to the Drey — which is what `executeExit` used to
+     * do — hands a whale a better withdrawal rate than everyone else, since
+     * `qbtcPerAlpha` refunds them their own share of their own loss. At 80% of
+     * the staked alpha that is an effective 90% rate against a small player's
+     * 50%. Splitting halves the edge, down to 65%, while squirrels keep earning
+     * from other people's impatience.
+     */
+    uint256 public constant WITHDRAW_LOSS_BURN_BPS = 5000;
+    /// @dev bounds what a validator could win by biasing one reveal slot
+    uint256 public constant MAX_WITHDRAW_PER_DRAW = 5000 ether;
+    /// @dev forces tranches, which pulls a realised outcome toward its EV
+    uint256 public constant MAX_WITHDRAW_SHARE_BPS = 2500;
+
+    /**
+     * Onboarding grant, released on progress rather than all at once.
+     *
+     * `mapping(address => bool) started` stops one address claiming twice and
+     * does nothing about one person using two thousand addresses, so the grant
+     * is a voucher: spent first, never withdrawable, and therefore worth
+     * nothing to a wallet farm. The milestones are the second layer — an idle
+     * farmed wallet never collects the larger half.
+     */
+    uint256 public constant STARTER_GRANT_STAKE = 200 ether;
+    uint256 public constant STARTER_GRANT_CLAIM = 300 ether;
+    /// @dev capped budget of its own, so onboarding never dilutes MINING_POOL
+    uint256 public constant ONBOARDING_POOL = 500 ether * 2000;
+
+    uint8 private constant STARTER_OPENED = 1;
+    uint8 private constant STARTER_STAKED = 2;
+    uint8 private constant STARTER_CLAIMED = 4;
 
     /* ---------------------------------------------------------- STORAGE */
 
@@ -85,9 +156,32 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
     mapping(uint256 => Guard[]) public drey;   // alpha => guards
     mapping(uint256 => uint256) public dreyIndices;
 
-    mapping(address => Vesting) public vesting;
+    /**
+     * Yield that has settled but not left the game.
+     *
+     * Spendable on coolant, repairs, acorns, patches, firewalls and forge fees
+     * the moment it lands, with no clock and nothing to reset. It is contract
+     * state rather than a token, so no third-party wallet can see it — which is
+     * why every movement emits an event and the lens reports the balance.
+     */
+    mapping(address => uint256) public credit;
+    /// @dev the onboarding voucher: spent before `credit`, never withdrawable
+    mapping(address => uint256) public starterCredit;
+    /// @dev bitfield of STARTER_OPENED / _STAKED / _CLAIMED
+    mapping(address => uint8) public starterFlags;
+    uint256 public onboardingPaid;
+
+    mapping(address => Withdrawal) public exiting;
     mapping(address => ExitCommit) public exitCommits;
     uint256 public commitNonce;
+
+    /// @dev contracts allowed to debit credit on a player's behalf
+    mapping(address => bool) public spenders;
+
+    /// @dev staked token ids per owner, so nobody has to replay the event log
+    mapping(address => uint16[]) private stakedIds;
+    /// @dev tokenId => index into stakedIds[owner], offset by one so 0 is absent
+    mapping(uint256 => uint256) private stakedSlot;
 
     /// @dev cumulative qBTC per unit of hashrate, scaled by PRECISION
     uint256 public accPerHash;
@@ -147,8 +241,15 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
     event Repaired(uint256 indexed tokenId, uint8 from, uint256 cost);
     event Mined(uint256 indexed tokenId, uint256 gross, uint256 tax, uint256 net);
     event Fed(uint256 indexed tokenId, uint8 energy, uint256 cost);
-    event ClaimVested(address indexed owner, uint256 amount);
-    event Withdrawn(address indexed owner, uint256 received, uint256 burned);
+    /// @dev credit is invisible to explorers and third-party wallets; these
+    /// four events are what lets an indexer rebuild a balance from the chain
+    event CreditEarned(address indexed owner, uint256 amount, uint256 balance);
+    event CreditSpent(address indexed owner, uint256 amount, uint256 fromCredit);
+    event WithdrawRequested(address indexed owner, uint256 amount, uint64 revealBlock);
+    event WithdrawReanchored(address indexed owner, uint64 revealBlock);
+    event WithdrawSettled(address indexed owner, uint256 amount, uint256 paid, bool won);
+    event StarterOpened(address indexed owner);
+    event StarterGranted(address indexed owner, uint256 amount, uint256 balance);
     event ExitCommitted(address indexed owner, uint256 count, uint64 revealBlock);
     event ExitSettled(address indexed owner, uint256 earned, uint256 stolen);
     event StreakBroken(uint256 indexed tokenId, uint32 hadDays);
@@ -170,6 +271,13 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
      * makes the denominator too large and the distribution slightly
      * conservative — the shortfall is simply never minted, and the contract can
      * never over-issue against the pool.
+     *
+     * The accumulator also ignores trait modifiers, while each rig claims its
+     * share multiplied by `hashrateBps`, so the sum of per-rig claims drifts
+     * from what the accumulator budgeted. That drift is intended, not a bug:
+     * it stays bounded by the MINING_POOL headroom clamp in `_settleRig`, and
+     * since TraitStats now rolls below neutral as well as above, harmful rolls
+     * pull it back the other way and narrow it.
      */
     function _updateAcc() internal {
         if (block.timestamp <= lastAccUpdate) return;
@@ -236,6 +344,8 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
     }
 
     function _stakeOne(address account, uint16 id) internal {
+        _track(account, id);
+        _grant(account, STARTER_STAKED, STARTER_GRANT_STAKE);
         if (game.getTokenTraits(id).isQuantum) {
             // A rig enters at full durability but with no fuel: it earns
             // nothing until its owner pays for coolant.
@@ -377,8 +487,8 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
             emit Refuelled(r.tokenId, r.fuelExpiry, c);
         }
 
-        _burnFrom(_msgSender(), cost);
-        if (owed > 0) _vest(_msgSender(), owed);
+        _credit(_msgSender(), owed);
+        _spend(_msgSender(), cost);
     }
 
     function repair(uint16[] calldata tokenIds)
@@ -402,11 +512,15 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
             emit Repaired(r.tokenId, before, cost);
         }
 
-        _burnFrom(_msgSender(), cost);
-        if (owed > 0) _vest(_msgSender(), owed);
+        _credit(_msgSender(), owed);
+        _spend(_msgSender(), cost);
     }
 
-    /// @dev settle and bank yield without unstaking; no random outcome here
+    /**
+     * Settles yield into spendable credit without unstaking. No random outcome
+     * here — the draw belongs on `requestWithdraw`, where leaving the game is
+     * the player's own decision.
+     */
     function claim(uint16[] calldata tokenIds)
         external
         whenNotPaused
@@ -424,7 +538,8 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
                 owed += _settleGuard(id, _msgSender());
             }
         }
-        if (owed > 0) _vest(_msgSender(), owed);
+        _credit(_msgSender(), owed);
+        _grant(_msgSender(), STARTER_CLAIMED, STARTER_GRANT_CLAIM);
     }
 
     /**
@@ -491,8 +606,8 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
             emit Fed(id, g.energy, cost);
         }
 
-        _burnFrom(_msgSender(), cost);
-        if (owed > 0) _vest(_msgSender(), owed);
+        _credit(_msgSender(), owed);
+        _spend(_msgSender(), cost);
     }
 
     /**
@@ -516,8 +631,8 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
             g.patchSeason = uint32(season);
         }
 
-        _burnFrom(_msgSender(), cost);
-        if (owed > 0) _vest(_msgSender(), owed);
+        _credit(_msgSender(), owed);
+        _spend(_msgSender(), cost);
     }
 
     /**
@@ -540,8 +655,8 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
 
         uint256 net = _settleRig(r);
         taken = (net * bps) / 10000;
-        if (taken > 0) _vest(raider, taken);
-        if (net > taken) _vest(r.owner, net - taken);
+        _credit(raider, taken);
+        if (net > taken) _credit(r.owner, net - taken);
     }
 
     function rigOwner(uint16 tokenId) external view returns (address) {
@@ -604,58 +719,178 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
         unaccountedTax = 0;
     }
 
-    /* ---------------------------------------------------------- VESTING */
+    /* ----------------------------------------------------------- CREDIT */
+
+    function _credit(address account, uint256 amount) internal {
+        if (amount == 0) return;
+        uint256 balance = credit[account] + amount;
+        credit[account] = balance;
+        emit CreditEarned(account, amount, balance);
+    }
 
     /**
-     * Moves a settled claim into escrow.
+     * Debits the voucher first, then earned credit, then the ERC-20 balance.
      *
-     * Whatever has already vested is paid out; whatever has not is carried into
-     * the new bucket rather than burned. Burning here would make claiming twice
-     * in a week destroy the earlier claim's unvested share — a trap that
-     * punishes ordinary play. The forfeit belongs on `withdraw`, where leaving
-     * early is the player's own decision.
+     * The order is what makes the voucher a voucher: it can only ever leave by
+     * being consumed inside the game, so a farmed starter pack yields nothing
+     * extractable. Every path here is a sink, so the whole amount counts
+     * against `totalBurned` whether or not a token existed to burn.
      */
-    function _vest(address account, uint256 amount) internal {
-        Vesting storage v = vesting[account];
-        uint256 carried;
-        if (v.amount > 0) {
-            (uint256 releasable, uint256 unvested) = _split(v);
-            if (releasable > 0) qbtc.mint(account, releasable);
-            carried = unvested;
+    function _spend(address account, uint256 amount) internal {
+        if (amount == 0) return;
+        uint256 left = _drawCredit(account, amount);
+        if (left > 0) qbtc.burn(account, left);
+        totalBurned += amount;
+        emit CreditSpent(account, amount, amount - left);
+    }
+
+    /// @return left the part of `amount` no credit balance could cover
+    function _drawCredit(address account, uint256 amount) internal returns (uint256 left) {
+        left = amount;
+        uint256 v = starterCredit[account];
+        if (v > 0) {
+            uint256 use = v < left ? v : left;
+            starterCredit[account] = v - use;
+            left -= use;
         }
-        v.amount = uint128(carried + amount);
-        v.start = uint40(block.timestamp);
-        emit ClaimVested(account, carried + amount);
+        if (left == 0) return 0;
+        uint256 c = credit[account];
+        if (c > 0) {
+            uint256 use = c < left ? c : left;
+            credit[account] = c - use;
+            left -= use;
+        }
     }
 
-    function _split(Vesting storage v) internal view returns (uint256 releasable, uint256 forfeit) {
-        uint256 f = Ops.vestedFraction(block.timestamp - v.start);
-        releasable = (uint256(v.amount) * f) / Ops.PRECISION;
-        forfeit = uint256(v.amount) - releasable;
-    }
-
-    /// @dev withdraw escrowed qBTC; the unvested share is burned, not returned
-    function withdraw() external nonReentrant {
-        Vesting storage v = vesting[_msgSender()];
-        require(v.amount > 0, "Nothing vesting");
-        (uint256 releasable, uint256 forfeit) = _split(v);
-        v.amount = 0;
-        if (releasable > 0) qbtc.mint(_msgSender(), releasable);
-        if (forfeit > 0) totalBurned += forfeit;
-        emit Withdrawn(_msgSender(), releasable, forfeit);
-    }
-
-    function vestingOf(address account)
+    /**
+     * Lets another game contract charge a fee against credit.
+     *
+     * Restricted to a whitelist rather than open, because credit is not a token
+     * and there is no allowance to check. The caller burns whatever this could
+     * not cover from the player's wallet balance itself.
+     */
+    function spendCredit(address account, uint256 amount)
         external
-        view
-        returns (uint256 amount, uint256 releasable, uint256 forfeit)
+        returns (uint256 covered)
     {
-        Vesting storage v = vesting[account];
-        if (v.amount == 0) return (0, 0, 0);
-        uint256 f = Ops.vestedFraction(block.timestamp - v.start);
-        releasable = (uint256(v.amount) * f) / Ops.PRECISION;
-        return (v.amount, releasable, uint256(v.amount) - releasable);
+        require(spenders[_msgSender()], "Not a game contract");
+        covered = amount - _drawCredit(account, amount);
+        if (covered == 0) return 0;
+        totalBurned += covered;
+        emit CreditSpent(account, covered, covered);
     }
+
+    /* -------------------------------------------------------- ONBOARDING */
+
+    /// @dev opened by the collection when a player buys their starter pack
+    function openStarterCredit(address account) external {
+        require(_msgSender() == address(game), "Only the collection");
+        require(starterFlags[account] == 0, "Already started");
+        starterFlags[account] = STARTER_OPENED;
+        emit StarterOpened(account);
+    }
+
+    /// @dev pays one milestone of the onboarding grant, once, within the pool
+    function _grant(address account, uint8 bit, uint256 amount) internal {
+        uint8 f = starterFlags[account];
+        if (f & STARTER_OPENED == 0 || f & bit != 0) return;
+        starterFlags[account] = f | bit;
+
+        uint256 room = ONBOARDING_POOL > onboardingPaid ? ONBOARDING_POOL - onboardingPaid : 0;
+        if (amount > room) amount = room;
+        if (amount == 0) return;
+
+        onboardingPaid += amount;
+        uint256 balance = starterCredit[account] + amount;
+        starterCredit[account] = balance;
+        emit StarterGranted(account, amount, balance);
+    }
+
+    /* -------------------------------------------------------- WITHDRAWAL */
+
+    /// @dev the share of a draw that is guaranteed regardless of the coin flip
+    function withdrawFloorBps(uint256 elapsed) public pure returns (uint256) {
+        if (elapsed >= WITHDRAW_WINDOW) return WITHDRAW_FLOOR_END;
+        return WITHDRAW_FLOOR_START
+            + ((WITHDRAW_FLOOR_END - WITHDRAW_FLOOR_START) * elapsed) / WITHDRAW_WINDOW;
+    }
+
+    /**
+     * Step 1 of 2 — move credit out of the game and start the odds clock.
+     *
+     * One request at a time, mirroring `exitCommits`. Tranches still work, they
+     * just run sequentially, and each one runs its own clock from the moment it
+     * was asked for.
+     */
+    function requestWithdraw(uint256 amount) external whenNotPaused nonReentrant {
+        require(amount > 0, "Nothing to withdraw");
+        require(exiting[_msgSender()].amount == 0, "Settle your pending withdrawal");
+        require(amount <= MAX_WITHDRAW_PER_DRAW, "Above the per-draw cap");
+
+        uint256 balance = credit[_msgSender()];
+        require(
+            amount <= (balance * MAX_WITHDRAW_SHARE_BPS) / 10000,
+            "Above a quarter of your credit"
+        );
+        credit[_msgSender()] = balance - amount;
+
+        uint64 rb = CommitReveal.targetBlock();
+        exiting[_msgSender()] = Withdrawal({
+            amount: uint128(amount),
+            start: uint40(block.timestamp),
+            revealBlock: rb,
+            salt: CommitReveal.salt(_msgSender(), commitNonce++)
+        });
+        emit WithdrawRequested(_msgSender(), amount, rb);
+    }
+
+    /**
+     * Step 2 of 2 — draw, and pay the floor plus whatever the flip awards.
+     *
+     * Permissionless, like every other reveal here, so a keeper or the app can
+     * finish a draw on the player's behalf.
+     *
+     * A dead anchor is re-taken in place and the call returns without paying:
+     * the odds clock in `start` is never touched, so waiting three days for
+     * better terms costs the player one extra press of the same button rather
+     * than a separate function they have to learn about.
+     */
+    function settleWithdraw(address owner) public whenNotPaused nonReentrant {
+        Withdrawal storage w = exiting[owner];
+        require(w.amount > 0, "No pending withdrawal");
+
+        if (CommitReveal.isExpired(w.revealBlock)) {
+            w.revealBlock = CommitReveal.targetBlock();
+            w.salt = CommitReveal.salt(owner, commitNonce++);
+            emit WithdrawReanchored(owner, w.revealBlock);
+            return;
+        }
+
+        uint256 seed = CommitReveal.seed(w.revealBlock, w.salt);
+        uint256 amount = w.amount;
+        uint256 guaranteed = (amount * withdrawFloorBps(block.timestamp - w.start)) / 10000;
+        delete exiting[owner];
+
+        bool won = seed % 10000 < WITHDRAW_DRAW_BPS;
+        uint256 paid = won ? amount : guaranteed;
+        if (paid > 0) qbtc.mint(owner, paid);
+        _forfeit(amount - paid);
+
+        emit WithdrawSettled(owner, amount, paid, won);
+    }
+
+    function settleWithdraw() external {
+        settleWithdraw(_msgSender());
+    }
+
+    /// @dev half of a lost draw is burned, half feeds the Drey
+    function _forfeit(uint256 lost) internal {
+        if (lost == 0) return;
+        uint256 burned = (lost * WITHDRAW_LOSS_BURN_BPS) / 10000;
+        totalBurned += burned;
+        _payDrey(lost - burned);
+    }
+
 
     /* ------------------------------------------------------------- EXIT */
 
@@ -701,7 +936,10 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
                 Rig storage r = rigs[id];
                 uint256 net = _settleRig(r);
                 if (CommitReveal.derive(seed, i) & 1 == 1) {
-                    _payDrey(net);
+                    // same split as a lost withdrawal draw, for the same
+                    // reason: paying the Drey in full refunds a whale most of
+                    // their own loss and would just move the hole here
+                    _forfeit(net);
                     stolen += net;
                     net = 0;
                 }
@@ -710,6 +948,7 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
                 totalHashrate -= Ops.hashrateMultiplier(r.durability);
                 totalRigsStaked -= 1;
                 delete rigs[id];
+                _untrack(owner, id);
                 game.transferFrom(address(this), owner, id);
             } else {
                 owed += _settleGuard(id, owner);
@@ -720,11 +959,12 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
                 dreyIndices[last.tokenId] = dreyIndices[id];
                 drey[alpha].pop();
                 delete dreyIndices[id];
+                _untrack(owner, id);
                 game.transferFrom(address(this), owner, id);
             }
         }
 
-        if (owed > 0) _vest(owner, owed);
+        _credit(owner, owed);
         emit ExitSettled(owner, owed, stolen);
     }
 
@@ -746,10 +986,32 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
         return MAX_ALPHA - game.getTokenTraits(tokenId).tierIndex;
     }
 
-    function _burnFrom(address account, uint256 amount) internal {
-        if (amount == 0) return;
-        qbtc.burn(account, amount);
-        totalBurned += amount;
+    /**
+     * Per-owner index of staked tokens.
+     *
+     * A staked token leaves the ERC-721 enumerable set, so without this the
+     * only way to list a player's holdings is to replay `qrl_getLogs` from the
+     * deploy block and then ask who owns each candidate. Swap-and-pop keeps
+     * both writes O(1).
+     */
+    function _track(address account, uint16 id) internal {
+        stakedIds[account].push(id);
+        stakedSlot[id] = stakedIds[account].length;
+    }
+
+    function _untrack(address account, uint16 id) internal {
+        uint256 slot = stakedSlot[id];
+        if (slot == 0) return;
+        uint16[] storage list = stakedIds[account];
+        uint16 last = list[list.length - 1];
+        list[slot - 1] = last;
+        stakedSlot[last] = slot;
+        list.pop();
+        delete stakedSlot[id];
+    }
+
+    function stakedOf(address account) external view returns (uint16[] memory) {
+        return stakedIds[account];
     }
 
     /// @dev alpha-weighted pick of a staked squirrel owner, for stolen mints
@@ -781,6 +1043,9 @@ contract QuantumFarm is Ownable, IERC721Receiver, Pausable, ReentrancyGuard {
     /* ------------------------------------------------------------- ADMIN */
 
     function setRaidPost(address v) external onlyOwner { raidPost = v; }
+
+    /// @dev whitelists a game contract to charge fees against player credit
+    function setSpender(address v, bool ok) external onlyOwner { spenders[v] = ok; }
 
     function setStats(address v) external onlyOwner { stats = ITraitStats(v); }
 

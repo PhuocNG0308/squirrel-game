@@ -93,6 +93,81 @@
     "anonymous": false,
     "inputs": [
       {
+        "indexed": true,
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint16",
+        "name": "a",
+        "type": "uint16"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint16",
+        "name": "b",
+        "type": "uint16"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint64",
+        "name": "revealBlock",
+        "type": "uint64"
+      }
+    ],
+    "name": "StarterFuseCommitted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint64",
+        "name": "revealBlock",
+        "type": "uint64"
+      }
+    ],
+    "name": "StarterFuseReanchored",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      },
+      {
+        "indexed": true,
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      },
+      {
+        "indexed": false,
+        "internalType": "bool",
+        "name": "squirrel",
+        "type": "bool"
+      }
+    ],
+    "name": "StarterFused",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
         "indexed": false,
         "internalType": "address",
         "name": "account",
@@ -110,6 +185,77 @@
         "internalType": "uint8",
         "name": "",
         "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "STARTER_FUSE_SQUIRREL_BPS",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "STARTER_FUSE_TIER_INDEX",
+    "outputs": [
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      }
+    ],
+    "name": "canSettleStarterFuse",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "commitNonce",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "farm",
+    "outputs": [
+      {
+        "internalType": "contract IQuantumFarm",
+        "name": "",
+        "type": "address"
       }
     ],
     "stateMutability": "view",
@@ -290,6 +436,19 @@
   {
     "inputs": [
       {
+        "internalType": "address",
+        "name": "v",
+        "type": "address"
+      }
+    ],
+    "name": "setFarm",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "uint256",
         "name": "v",
         "type": "uint256"
@@ -324,6 +483,156 @@
     "name": "setStats",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      }
+    ],
+    "name": "settleStarterFuse",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "tokenId",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "settleStarterFuse",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "starterCommits",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "bool",
+            "name": "isQuantum",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint8",
+            "name": "chassis",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "head",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "ears",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "eyes",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "nose",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "mouth",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "neck",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "feet",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "tierIndex",
+            "type": "uint8"
+          }
+        ],
+        "internalType": "struct ISquirrelGame.QuantumSquirrel",
+        "name": "child",
+        "type": "tuple"
+      },
+      {
+        "internalType": "uint64",
+        "name": "revealBlock",
+        "type": "uint64"
+      },
+      {
+        "internalType": "uint256",
+        "name": "salt",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "a",
+        "type": "uint16"
+      },
+      {
+        "internalType": "uint16",
+        "name": "b",
+        "type": "uint16"
+      }
+    ],
+    "name": "starterFuse",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "starterFused",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {

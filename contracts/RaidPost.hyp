@@ -101,7 +101,9 @@ contract RaidPost is Ownable, Pausable, ReentrancyGuard {
         }
 
         if (cost > 0) {
-            qbtc.burn(_msgSender(), cost);
+            // in-game credit first, wallet balance for whatever it cannot cover
+            uint256 covered = farm.spendCredit(_msgSender(), cost);
+            if (cost > covered) qbtc.burn(_msgSender(), cost - covered);
             totalBurned += cost;
         }
     }

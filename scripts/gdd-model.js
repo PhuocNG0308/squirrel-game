@@ -169,17 +169,30 @@ console.log('A whale with 100 rigs cannot win the Operators ladder by uptime %')
 console.log('any more easily than a player with 3 rigs — it is harder, since');
 console.log('every rig must be maintained.');
 
-console.log('\n\n=== 7. CLAIM VESTING ===\n');
-console.log('Claimed qBTC vests linearly over 7 days. Claiming early forfeits a');
-console.log('share, which is burned:\n');
-console.log('%s %s %s', 'claimed after'.padEnd(16), 'received'.padStart(12), 'burned'.padStart(10));
-for (const d of [0, 1, 3, 5, 7]) {
-  const r = Math.min(1, d / 7);
-  console.log('%s %s %s',
-    `${d} days`.padEnd(16), pct(r, 0).padStart(12), pct(1 - r, 0).padStart(10));
+console.log('\n\n=== 7. WITHDRAWAL: A FLOOR AND A DRAW ===\n');
+console.log('Mining yield settles into in-game credit, spendable on coolant,');
+console.log('repairs, acorns and forge fees the moment it lands. Turning credit');
+console.log('into transferable qBTC is a separate act, and it is charged there:');
+console.log('a guaranteed floor rising to 60% over three days, plus a fixed');
+console.log('50/50 draw on whatever the floor does not already cover.\n');
+console.log('%s %s %s %s %s', 'drawn after'.padEnd(14), 'guaranteed'.padStart(11),
+  'flip wins'.padStart(10), 'flip loses'.padStart(11), 'EV'.padStart(7));
+const FLOOR_END = 0.60, WINDOW = 3, DRAW = 0.5;
+for (const d of [0, 1, 2, 3]) {
+  const floor = FLOOR_END * Math.min(1, d / WINDOW);
+  const ev = floor + DRAW * (1 - floor);
+  console.log('%s %s %s %s %s',
+    `${d} days`.padEnd(14), pct(floor, 0).padStart(11), pct(1, 0).padStart(10),
+    pct(floor, 0).padStart(11), pct(ev, 0).padStart(7));
 }
-console.log('\nThis blunts dump pressure without locking anyone out, and the');
-console.log('forfeited share is an additional sink that scales with impatience.');
+console.log('\nThe expected value runs 50% -> 80%, so the anti-dump pressure is');
+console.log('unchanged from the vesting schedule this replaces. What changed is');
+console.log('the worst case: a player who waits can no longer be zeroed, and the');
+console.log('lock is charged on leaving rather than on maintaining rigs.');
+console.log('\nA lost draw is half burned and half paid to the Drey. Paying the');
+console.log('whole loss to the Drey refunds a large holder most of their own');
+console.log('loss — at 80% of staked alpha that is an effective 90% withdrawal');
+console.log('rate against a small player\'s 50%. The split halves that edge.');
 
 console.log('\n\n=== 8. CHECKS ===\n');
 const checks = [

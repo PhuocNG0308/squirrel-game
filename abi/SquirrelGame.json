@@ -76,6 +76,25 @@
       {
         "indexed": true,
         "internalType": "address",
+        "name": "player",
+        "type": "address"
+      },
+      {
+        "indexed": false,
+        "internalType": "uint16",
+        "name": "startTokenId",
+        "type": "uint16"
+      }
+    ],
+    "name": "GameStarted",
+    "type": "event"
+  },
+  {
+    "anonymous": false,
+    "inputs": [
+      {
+        "indexed": true,
+        "internalType": "address",
         "name": "minter",
         "type": "address"
       },
@@ -286,6 +305,19 @@
   },
   {
     "inputs": [],
+    "name": "MAX_STARTER_PACKS",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
     "name": "MAX_TOKENS",
     "outputs": [
       {
@@ -318,6 +350,45 @@
         "internalType": "uint256",
         "name": "",
         "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "STARTER_MIN_BALANCE",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "",
+        "type": "uint256"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "STARTER_RIGS",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "STARTER_TRAIT_INDEX",
+    "outputs": [
+      {
+        "internalType": "uint8",
+        "name": "",
+        "type": "uint8"
       }
     ],
     "stateMutability": "view",
@@ -992,6 +1063,82 @@
   {
     "inputs": [
       {
+        "internalType": "uint256",
+        "name": "seed",
+        "type": "uint256"
+      },
+      {
+        "internalType": "bool",
+        "name": "quantum",
+        "type": "bool"
+      }
+    ],
+    "name": "rollTraits",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "bool",
+            "name": "isQuantum",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint8",
+            "name": "chassis",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "head",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "ears",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "eyes",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "nose",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "mouth",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "neck",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "feet",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "tierIndex",
+            "type": "uint8"
+          }
+        ],
+        "internalType": "struct ISquirrelGame.QuantumSquirrel",
+        "name": "",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "address",
         "name": "from",
         "type": "address"
@@ -1113,6 +1260,19 @@
   {
     "inputs": [
       {
+        "internalType": "bool",
+        "name": "v",
+        "type": "bool"
+      }
+    ],
+    "name": "setStarterGate",
+    "outputs": [],
+    "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
         "internalType": "address",
         "name": "_traits",
         "type": "address"
@@ -1121,6 +1281,58 @@
     "name": "setTraits",
     "outputs": [],
     "stateMutability": "nonpayable",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "startGame",
+    "outputs": [],
+    "stateMutability": "payable",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "name": "started",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "starterGate",
+    "outputs": [
+      {
+        "internalType": "bool",
+        "name": "",
+        "type": "bool"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "starterPacks",
+    "outputs": [
+      {
+        "internalType": "uint16",
+        "name": "",
+        "type": "uint16"
+      }
+    ],
+    "stateMutability": "view",
     "type": "function"
   },
   {

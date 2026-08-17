@@ -1,0 +1,650 @@
+[
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "_game",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_farm",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_raidPost",
+        "type": "address"
+      },
+      {
+        "internalType": "address",
+        "name": "_stats",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "nonpayable",
+    "type": "constructor"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      }
+    ],
+    "name": "creditOf",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "credit",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "starterCredit",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "walletBalance",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint8",
+            "name": "starterFlags",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint256",
+            "name": "drawAmount",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "drawGuaranteed",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "drawGuaranteedAtEnd",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint40",
+            "name": "drawStart",
+            "type": "uint40"
+          },
+          {
+            "internalType": "bool",
+            "name": "drawReady",
+            "type": "bool"
+          },
+          {
+            "internalType": "bool",
+            "name": "drawNeedsReanchor",
+            "type": "bool"
+          }
+        ],
+        "internalType": "struct SquirrelLens.CreditView",
+        "name": "v",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "farm",
+    "outputs": [
+      {
+        "internalType": "contract QuantumFarm",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "game",
+    "outputs": [
+      {
+        "internalType": "contract SquirrelGame",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "gameStats",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint256",
+            "name": "minted",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "maxTokens",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "paidTokens",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "mintPrice",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "totalMined",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "totalBurned",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "totalHashrate",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "totalRigsStaked",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "totalAlphaStaked",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "qbtcPerAlpha",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "season",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "fullRateDailyYield",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "onboardingPaid",
+            "type": "uint256"
+          },
+          {
+            "internalType": "uint256",
+            "name": "starterPacksLeft",
+            "type": "uint256"
+          }
+        ],
+        "internalType": "struct SquirrelLens.GameStats",
+        "name": "s",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint256",
+        "name": "from",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256",
+        "name": "count",
+        "type": "uint256"
+      }
+    ],
+    "name": "mintCosts",
+    "outputs": [
+      {
+        "internalType": "uint256[]",
+        "name": "out",
+        "type": "uint256[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      }
+    ],
+    "name": "pendingOf",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "total",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint16[]",
+        "name": "ids",
+        "type": "uint16[]"
+      },
+      {
+        "internalType": "uint256[]",
+        "name": "nets",
+        "type": "uint256[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16[]",
+        "name": "tokenIds",
+        "type": "uint16[]"
+      }
+    ],
+    "name": "pendingOfTokens",
+    "outputs": [
+      {
+        "internalType": "uint256",
+        "name": "total",
+        "type": "uint256"
+      },
+      {
+        "internalType": "uint256[]",
+        "name": "nets",
+        "type": "uint256[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      }
+    ],
+    "name": "portfolioOf",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint16",
+            "name": "tokenId",
+            "type": "uint16"
+          },
+          {
+            "internalType": "bool",
+            "name": "isQuantum",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint8",
+            "name": "generation",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "alpha",
+            "type": "uint8"
+          },
+          {
+            "internalType": "bool",
+            "name": "staked",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint8",
+            "name": "durability",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint40",
+            "name": "fuelExpiry",
+            "type": "uint40"
+          },
+          {
+            "internalType": "uint32",
+            "name": "streakDays",
+            "type": "uint32"
+          },
+          {
+            "internalType": "bool",
+            "name": "mining",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint8",
+            "name": "energy",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "firewall",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint16",
+            "name": "hashrateBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "wearBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "coolantBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "repairBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "energyBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "taxBps",
+            "type": "uint16"
+          }
+        ],
+        "internalType": "struct SquirrelLens.TokenView[]",
+        "name": "out",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "raidPost",
+    "outputs": [
+      {
+        "internalType": "contract RaidPost",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "address",
+        "name": "owner",
+        "type": "address"
+      }
+    ],
+    "name": "stakedOf",
+    "outputs": [
+      {
+        "internalType": "uint16[]",
+        "name": "",
+        "type": "uint16[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [],
+    "name": "stats",
+    "outputs": [
+      {
+        "internalType": "contract ITraitStats",
+        "name": "",
+        "type": "address"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16",
+        "name": "tokenId",
+        "type": "uint16"
+      }
+    ],
+    "name": "tokenView",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint16",
+            "name": "tokenId",
+            "type": "uint16"
+          },
+          {
+            "internalType": "bool",
+            "name": "isQuantum",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint8",
+            "name": "generation",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "alpha",
+            "type": "uint8"
+          },
+          {
+            "internalType": "bool",
+            "name": "staked",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint8",
+            "name": "durability",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint40",
+            "name": "fuelExpiry",
+            "type": "uint40"
+          },
+          {
+            "internalType": "uint32",
+            "name": "streakDays",
+            "type": "uint32"
+          },
+          {
+            "internalType": "bool",
+            "name": "mining",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint8",
+            "name": "energy",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "firewall",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint16",
+            "name": "hashrateBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "wearBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "coolantBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "repairBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "energyBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "taxBps",
+            "type": "uint16"
+          }
+        ],
+        "internalType": "struct SquirrelLens.TokenView",
+        "name": "v",
+        "type": "tuple"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  },
+  {
+    "inputs": [
+      {
+        "internalType": "uint16[]",
+        "name": "tokenIds",
+        "type": "uint16[]"
+      }
+    ],
+    "name": "tokenViews",
+    "outputs": [
+      {
+        "components": [
+          {
+            "internalType": "uint16",
+            "name": "tokenId",
+            "type": "uint16"
+          },
+          {
+            "internalType": "bool",
+            "name": "isQuantum",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint8",
+            "name": "generation",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "alpha",
+            "type": "uint8"
+          },
+          {
+            "internalType": "bool",
+            "name": "staked",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint8",
+            "name": "durability",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint40",
+            "name": "fuelExpiry",
+            "type": "uint40"
+          },
+          {
+            "internalType": "uint32",
+            "name": "streakDays",
+            "type": "uint32"
+          },
+          {
+            "internalType": "bool",
+            "name": "mining",
+            "type": "bool"
+          },
+          {
+            "internalType": "uint8",
+            "name": "energy",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint8",
+            "name": "firewall",
+            "type": "uint8"
+          },
+          {
+            "internalType": "uint16",
+            "name": "hashrateBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "wearBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "coolantBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "repairBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "energyBps",
+            "type": "uint16"
+          },
+          {
+            "internalType": "uint16",
+            "name": "taxBps",
+            "type": "uint16"
+          }
+        ],
+        "internalType": "struct SquirrelLens.TokenView[]",
+        "name": "out",
+        "type": "tuple[]"
+      }
+    ],
+    "stateMutability": "view",
+    "type": "function"
+  }
+]

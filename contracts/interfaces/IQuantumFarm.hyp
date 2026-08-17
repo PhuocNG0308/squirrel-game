@@ -34,6 +34,14 @@ interface IQuantumFarm {
         external
         returns (uint256);
 
+    /**
+     * Charges `amount` against a player's in-game credit, voucher first.
+     *
+     * @return covered how much credit paid for; the caller burns the rest from
+     * the player's ERC-20 balance itself.
+     */
+    function spendCredit(address account, uint256 amount) external returns (uint256 covered);
+
     function rigSeasonMined(uint256 season, uint256 tokenId) external view returns (uint256);
 
     function rigSeasonUptime(uint256 season, uint256 tokenId) external view returns (uint256);

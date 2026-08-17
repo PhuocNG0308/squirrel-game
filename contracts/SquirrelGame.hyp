@@ -87,6 +87,19 @@ contract SquirrelGame is ISquirrelGame, ERC721Enumerable, Ownable, Pausable, Ree
     event MintCommitted(address indexed minter, uint16 startTokenId, uint16 amount, uint64 revealBlock);
     event MintRevealed(address indexed minter, address indexed revealer, uint16 amount);
     event MintReanchored(address indexed minter, uint64 revealBlock);
+    event GameStarted(address indexed player, uint16 startTokenId);
+
+    /* ------------------------------------------------------- STARTER PACK */
+
+    /// @dev rigs in a starter pack; two feed the guided fusion, one keeps mining
+    uint16 public constant STARTER_RIGS = 3;
+    uint256 public constant MAX_STARTER_PACKS = 2000;
+    /// @dev mainnet gate; see `startGame`
+    uint256 public constant STARTER_MIN_BALANCE = 1 ether;
+
+    mapping(address => bool) public started;
+    uint16 public starterPacks;
+    bool public starterGate;
 
     constructor(address _qbtc, address _traits, uint256 _maxTokens)
         ERC721("Squirrel Game", "SQRL")
@@ -136,6 +149,87 @@ contract SquirrelGame is ISquirrelGame, ERC721Enumerable, Ownable, Pausable, Ree
         aliases[15] = [0, 0, 0, 1];
         aliases[16] = [0, 0, 0, 1];
         aliases[17] = [2, 2, 2];
+    }
+
+    /* ----------------------------------------------------- STARTER PACK */
+
+    /**
+     * One signature, three rigs, and an onboarding voucher opened on the farm.
+     *
+     * `commitMint` cannot be a first contact with the game: it is a
+     * commit/reveal, so it needs two signatures at least a block apart and a
+     * re-anchor if the player wanders off for four hours. Fixed traits need no
+     * randomness at all, which is what lets this settle in one block.
+     *
+     * Three rigs rather than two, so the guided fusion that follows can burn a
+     * pair and still leave the player with something that mines whatever the
+     * roll produces. Fusing needs the tokens unstaked, so nothing is staked
+     * here — the tutorial fuses first and stakes second.
+     */
+    function startGame() external payable whenNotPaused nonReentrant {
+        require(tx.origin == _msgSender(), "Only EOA");
+        require(!started[_msgSender()], "Already started");
+        require(starterPacks < MAX_STARTER_PACKS, "Starter packs sold out");
+        require(msg.value == STARTER_RIGS * MINT_PRICE, "Invalid payment amount");
+        require(minted + STARTER_RIGS <= PAID_TOKENS, "All tokens on-sale already sold");
+        /**
+         * `started` stops one address claiming twice and does nothing about one
+         * person using two thousand addresses. The balance check is the part
+         * that costs a scripted wallet farm more than a pack earns; the ZVM
+         * cannot read another account's nonce, so holding real coin is the only
+         * prior-history signal available on chain. Off by default, because on
+         * testnet the faucet makes it meaningless.
+         */
+        require(
+            !starterGate || _msgSender().balance >= STARTER_MIN_BALANCE,
+            "Fund your wallet first"
+        );
+
+        started[_msgSender()] = true;
+        starterPacks += 1;
+
+        uint16 startTokenId = minted + 1;
+        minted += STARTER_RIGS;
+
+        for (uint16 i = 0; i < STARTER_RIGS; i++) {
+            uint16 tokenId = startTokenId + i;
+            tokenTraits[tokenId] = _starterRig();
+            _safeMint(_msgSender(), tokenId);
+            emit QuantumMinted(tokenId, _msgSender());
+        }
+
+        farm.openStarterCredit(_msgSender());
+        emit GameStarted(_msgSender(), startTokenId);
+    }
+
+    /// @dev the trait index every table in TraitStats pins to exactly NEUTRAL
+    uint8 public constant STARTER_TRAIT_INDEX = 1;
+
+    /**
+     * The starter loadout: index 1 in all four mechanical slots, which every
+     * TraitStats table pins to exactly NEUTRAL. A starter rig is therefore
+     * precisely the reference machine the economy is priced against.
+     *
+     * Index 1 rather than 0 on purpose. Index 0 is the most common roll and
+     * carries the penalty side of each table, so a pack built from it would
+     * hand every new player the strictly worst rig in the collection — and the
+     * guided fusion could not repair it, because `_combine` takes the better of
+     * each slot and both parents are the same token. The two constants have to
+     * move together; see the note in TraitStats.
+     *
+     * Deliberately NOT recorded in `existingCombinations`. That registry exists
+     * so two random draws never collide; a starter pack is a fixed loadout, and
+     * registering the first one would instead delete that combination from the
+     * roll table for everybody else. Every starter rig is therefore identical,
+     * which is also what makes the tutorial's "fuse two of these three" a clean
+     * lesson rather than a choice.
+     */
+    function _starterRig() internal pure returns (QuantumSquirrel memory t) {
+        t.isQuantum = true;
+        t.chassis = STARTER_TRAIT_INDEX; // wear
+        t.head = STARTER_TRAIT_INDEX;    // coolant draw
+        t.nose = STARTER_TRAIT_INDEX;    // hashrate
+        t.feet = STARTER_TRAIT_INDEX;    // repair cost
     }
 
     /* ---------------------------------------------------------- MINTING */
@@ -308,9 +402,28 @@ contract SquirrelGame is ISquirrelGame, ERC721Enumerable, Ownable, Pausable, Ree
     }
 
     /// @dev 9 traits drawn from independent 16-bit windows of the seed
-    function selectTraits(uint256 seed) internal view returns (QuantumSquirrel memory t) {
-        t.isQuantum = (seed & 0xFFFF) % 10 != 0;
-        uint8 shift = t.isQuantum ? 0 : 9;
+    function selectTraits(uint256 seed) internal view returns (QuantumSquirrel memory) {
+        return _roll(seed, (seed & 0xFFFF) % 10 != 0);
+    }
+
+    /**
+     * A roll with the species supplied rather than drawn.
+     *
+     * The onboarding forge needs this: it burns two rigs and may hand back a
+     * squirrel, which `selectTraits` cannot express because it decides the
+     * species from the same seed word.
+     */
+    function rollTraits(uint256 seed, bool quantum)
+        external
+        view
+        returns (QuantumSquirrel memory)
+    {
+        return _roll(seed, quantum);
+    }
+
+    function _roll(uint256 seed, bool quantum) internal view returns (QuantumSquirrel memory t) {
+        t.isQuantum = quantum;
+        uint8 shift = quantum ? 0 : 9;
 
         seed >>= 16; t.chassis   = selectTrait(uint16(seed & 0xFFFF), 0 + shift);
         seed >>= 16; t.head      = selectTrait(uint16(seed & 0xFFFF), 1 + shift);
@@ -365,7 +478,11 @@ contract SquirrelGame is ISquirrelGame, ERC721Enumerable, Ownable, Pausable, Ree
      */
     function forgeBurn(uint256 tokenId) external {
         require(_msgSender() == fusionForge, "Only the forge");
-        delete existingCombinations[structToHash(tokenTraits[tokenId])];
+        // Release the combination only if this token is the one holding it.
+        // Starter rigs share a loadout that a rolled mint may also own, and
+        // burning one must not free a registration that belongs to the other.
+        uint256 hash = structToHash(tokenTraits[tokenId]);
+        if (existingCombinations[hash] == tokenId) delete existingCombinations[hash];
         delete tokenTraits[tokenId];
         delete generation[tokenId];
         _burn(tokenId);
@@ -386,12 +503,19 @@ contract SquirrelGame is ISquirrelGame, ERC721Enumerable, Ownable, Pausable, Ree
         tokenId = MAX_TOKENS + forged;
         tokenTraits[tokenId] = t;
         generation[tokenId] = gen;
-        existingCombinations[structToHash(t)] = tokenId;
+        // claim the combination only if it is free; never evict a live holder
+        uint256 hash = structToHash(t);
+        if (existingCombinations[hash] == 0) existingCombinations[hash] = tokenId;
         _safeMint(to, tokenId);
     }
 
     function setFusionForge(address _forge) external onlyOwner {
         fusionForge = _forge;
+    }
+
+    /// @dev enable the starter-pack balance gate; off on testnet
+    function setStarterGate(bool v) external onlyOwner {
+        starterGate = v;
     }
 
     function getPaidTokens() external view override returns (uint256) {

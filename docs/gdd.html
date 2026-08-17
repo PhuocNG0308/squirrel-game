@@ -331,7 +331,7 @@
       <a href="#raids"><span>07</span> Raids &amp; defence</a>
       <a href="#retention"><span>08</span> Retention systems</a>
       <a href="#seasons"><span>09</span> Seasons &amp; ladders</a>
-      <a href="#vesting"><span>10</span> Claim vesting</a>
+      <a href="#vesting"><span>10</span> Credit &amp; withdrawal</a>
       <a href="#ledger"><span>11</span> Anti-Ponzi ledger</a>
       <a href="#risks"><span>12</span> Four reviewed risks</a>
       <a href="#open"><span>13</span> What testnet proves</a>
@@ -787,8 +787,10 @@
         longer an attack.</li>
       </ul>
       <p>
-        Quest rewards vest over <strong>14 days</strong> rather than 7, since this is the only
-        track that pays out without any matching capital at risk.
+        Quest rewards are the one payout that still vests, over <strong>14 days</strong>,
+        because this is the only track that pays out with no matching capital at risk.
+        Mining yield goes to credit instead (<a href="#vesting">section 10</a>); a quest
+        reward has nothing staked behind it, so the wait is the whole of its cost.
       </p>
 
       <h3>Fusion</h3>
@@ -797,6 +799,63 @@
         a higher base hashrate and a slower decay rate. This is the endgame sink:
         it gives large holders something to spend on, removes NFTs from supply, and
         gives low-tier tokens a floor by making them fusion feedstock.
+      </p>
+      <p>
+        Fusion has something to repair because trait tables span <strong>both sides of
+        neutral</strong>. The common roll in a slot is a genuine flaw &mdash; a chassis that
+        wears 9% faster, a power core that mines 6% slower &mdash; not merely a smaller
+        bonus. Without a downside there are no bad rolls, only less good ones, opening a
+        mint carries no tension, and the forge can only make a good thing better.
+      </p>
+      <p>
+        Each table is tuned so its <strong>probability-weighted mean lands on neutral</strong>,
+        not so its first entry does. That distinction is the whole calibration.
+        <code>fullRateDailyYield</code> comes from an accumulator that applies no modifiers,
+        so every price derived from it &mdash; coolant, repair, acorns, firewalls &mdash; is
+        pinned to exactly neutral. Let the average roll sit below it and the typical rig
+        mines at 0.9&times; while paying bills priced at 1.0&times;: a permanent squeeze on
+        the median player that nobody chose and no contract would ever report. Since the
+        alias tables put 40&ndash;55% of the mass on the first index, the common roll is
+        still a real penalty; the compensation lives in the rare tail, which is what makes
+        chasing it worth doing. <code>scripts/trait-balance.js</code> re-derives the
+        distribution from the contract sources and fails if any slot drifts more than 1%
+        off neutral.
+      </p>
+      <p>
+        <strong>Index 1 is exactly neutral in every table, and the starter pack is minted
+        at index 1.</strong> That pairing is load-bearing, not tidy: index 0 carries the
+        penalty side of each table, so a pack built from it would hand every new player
+        the strictly worst rig in the collection &mdash; and the guided fusion could not
+        repair it, because <code>_combine</code> takes the better of each slot and both
+        parents are the same token. A starter rig is therefore precisely the reference
+        machine the economy is priced against, no better and no worse, and the balance
+        report fails if the two constants ever drift apart.
+      </p>
+
+      <h3>Starter pack</h3>
+      <p>
+        First contact with the game is <strong>one signature</strong>:
+        <code>startGame()</code> takes 3&times;&nbsp;the mint price and hands over three rigs
+        with a fixed baseline loadout. No commit&ndash;reveal, no second transaction, no
+        re-anchor if the player wanders off. The guided fusion that follows burns two of
+        the three, rolls <strong>60% rig / 40% squirrel</strong> at the baseline rank, and
+        leaves the third rig mining throughout &mdash; so whatever the roll produces, the
+        player still owns something that earns. Fusing needs unstaked tokens, so the
+        tutorial fuses first and stakes second.
+      </p>
+      <p>
+        The guided fusion accepts only the pack's own baseline rigs, from an address
+        that bought a pack. Without both gates it is a free <code>fuse()</code> &mdash;
+        the same deterministic child, no 500 qBTC fee &mdash; and since addresses are
+        free, a large holder would route every fusion through a fresh wallet.
+      </p>
+      <p>
+        The pack also opens a <strong>500 qBTC voucher</strong>, released on progress: 200
+        on the first stake, 300 on the first claim. It is spent before earned credit and
+        can never be withdrawn, which is what makes a farmed pack worthless &mdash; a
+        <code>started</code> flag stops one address claiming twice and does nothing about
+        one person using two thousand addresses. The voucher draws on its own capped
+        budget of 1,000,000 qBTC rather than diluting the mining pool.
       </p>
     </section>
 
@@ -867,27 +926,49 @@
     </section>
 
     <section id="vesting">
-      <div class="sec-head"><div class="sec-num">10</div><h2>Claim vesting</h2></div>
+      <div class="sec-head"><div class="sec-num">10</div><h2>Credit and withdrawal</h2></div>
       <p class="lede">
-        Claimed qBTC vests linearly over seven days. Taking it early forfeits the
-        unvested share, which is burned.
+        Mining yield settles into <strong>in-game credit</strong>: spendable on coolant,
+        repairs, acorns, patches, firewalls and forge fees the moment it lands, with no
+        clock and nothing to reset. Turning credit into transferable qBTC is a separate,
+        deliberate act, and that is where the cost of leaving is charged.
+      </p>
+      <p>
+        A withdrawal guarantees a floor that rises to 60% over three days, and puts a
+        fixed 50/50 draw on whatever the floor does not already cover.
       </p>
       <div class="tw">
         <table>
-          <thead><tr><th>Withdrawn after</th><th class="num">Received</th><th class="num">Burned</th></tr></thead>
+          <thead><tr><th>Drawn after</th><th class="num">Guaranteed</th><th class="num">Flip wins</th><th class="num">Flip loses</th><th class="num">Expected</th></tr></thead>
           <tbody>
-            <tr class="st st-hot"><td>Immediately</td><td class="num">0%</td><td class="num">100%</td></tr>
-            <tr class="st st-hot"><td>1 day</td><td class="num">14%</td><td class="num">86%</td></tr>
-            <tr class="st st-warm"><td>3 days</td><td class="num">43%</td><td class="num">57%</td></tr>
-            <tr class="st st-warm"><td>5 days</td><td class="num">71%</td><td class="num">29%</td></tr>
-            <tr class="st st-ok"><td>7 days</td><td class="num">100%</td><td class="num">0%</td></tr>
+            <tr class="st st-hot"><td>Immediately</td><td class="num">0%</td><td class="num">100%</td><td class="num">0%</td><td class="num">50%</td></tr>
+            <tr class="st st-warm"><td>1 day</td><td class="num">20%</td><td class="num">100%</td><td class="num">20%</td><td class="num">60%</td></tr>
+            <tr class="st st-warm"><td>2 days</td><td class="num">40%</td><td class="num">100%</td><td class="num">40%</td><td class="num">70%</td></tr>
+            <tr class="st st-ok"><td>3 days or more</td><td class="num">60%</td><td class="num">100%</td><td class="num">60%</td><td class="num">80%</td></tr>
           </tbody>
         </table>
       </div>
       <p>
-        This blunts dump pressure without locking anyone out, and the forfeited share
-        is a sink that scales with impatience — it takes the most from exactly the
-        behaviour that damages the token.
+        The expected value is identical to the seven-day vesting schedule this replaces,
+        so the anti-dump pressure does not move. Two things do. The lock is charged on
+        <em>leaving</em> rather than on maintaining rigs — an earlier design restarted its
+        clock on every settlement, so a player who refuelled daily could never reach a full
+        payout — and a player who waits can no longer be zeroed. Drawing immediately still
+        can be, on purpose: that is the impatient path.
+      </p>
+      <p>
+        A lost draw is <strong>half burned and half paid to the Drey</strong>. Paying the
+        whole loss to the Drey refunds a large holder most of their own loss through
+        <code>qbtcPerAlpha</code> — at 80% of the staked alpha that is an effective 90%
+        withdrawal rate against a small player's 50%, a transfer running the wrong way.
+        The split halves that edge while squirrels keep earning from other people's
+        impatience. The coin flip on unstaking is settled the same way.
+      </p>
+      <p>
+        Two limits per draw, whichever binds first: <strong>5,000 qBTC</strong>, which
+        bounds what a validator could win by biasing one reveal slot, and <strong>25% of
+        credit</strong>, which forces tranches and so pulls a realised outcome toward its
+        expected value. One request may be outstanding at a time.
       </p>
     </section>
 
@@ -905,7 +986,7 @@
             <tr class="st st-ok"><td>Rewards are not purely stake-weighted</td><td><span class="tag t-ok">Solved</span></td><td class="wrap">40% of supply gated behind rank and activity</td></tr>
             <tr class="st st-ok"><td>Early players cannot lock in dominance</td><td><span class="tag t-ok">Solved</span></td><td class="wrap">Seasonal rank decay, capped streaks, firewall decay</td></tr>
             <tr class="st st-ok"><td>Emission is not front-loaded</td><td><span class="tag t-ok">Solved</span></td><td class="wrap">4%/season decay; 32% issued in year one, not 75%</td></tr>
-            <tr class="st st-ok"><td>Instant exit is discouraged</td><td><span class="tag t-ok">Solved</span></td><td class="wrap">Seven-day vesting with a burned forfeit</td></tr>
+            <tr class="st st-ok"><td>Instant exit is discouraged</td><td><span class="tag t-ok">Solved</span></td><td class="wrap">Withdrawal floor climbs over three days; the rest is a 50/50 draw</td></tr>
             <tr class="st st-warm"><td>Standing demand beyond speculation</td><td><span class="tag t-warm">Partial</span></td><td class="wrap">Upkeep, patches and the firewall arms race are perpetual sinks — but all internal</td></tr>
             <tr class="st st-hot"><td>Token has a floor independent of new buyers</td><td><span class="tag t-hot">Unsolved</span></td><td class="wrap">Requires external revenue; see below</td></tr>
           </tbody>
@@ -1068,7 +1149,10 @@
             <tr><td>Raid cost</td><td class="num">15 energy</td><td class="wrap">Per attempt</td></tr>
             <tr><td>Raid theft cap</td><td class="num">25%</td><td class="wrap">Of unclaimed yield</td></tr>
             <tr><td>Streak bonus</td><td class="num">+1% / day</td><td class="wrap">Capped at +25%</td></tr>
-            <tr><td>Claim vesting</td><td class="num">7 days</td><td class="wrap">Linear; forfeit is burned</td></tr>
+            <tr><td>Withdrawal window</td><td class="num">3 days</td><td class="wrap">Guaranteed share climbs 0% &rarr; 60%</td></tr>
+            <tr><td>Withdrawal draw</td><td class="num">50/50</td><td class="wrap">On the share the floor does not cover</td></tr>
+            <tr><td>Lost draw</td><td class="num">50% burn / 50% Drey</td><td class="wrap">Same split on a failed unstake</td></tr>
+            <tr><td>Per-draw cap</td><td class="num">5,000 qBTC</td><td class="wrap">And at most 25% of credit</td></tr>
             <tr><td>Quest reward vesting</td><td class="num">14 days</td><td class="wrap">Longer; no matching capital at risk</td></tr>
             <tr><td>Achievement tenure gate</td><td class="num">30/60/90 days</td><td class="wrap">Per NFT, continuous</td></tr>
             <tr><td>Season payout</td><td class="num">pro-rata</td><td class="wrap">By per-NFT score — Sybil-neutral</td></tr>

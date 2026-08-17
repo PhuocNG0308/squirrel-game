@@ -29,6 +29,7 @@ async function main() {
   const game = at('SquirrelGame', c.SquirrelGame);
   const farm = at('QuantumFarm', c.QuantumFarm);
   const post = at('RaidPost', c.RaidPost);
+  const fusion = at('Fusion', c.Fusion);
 
   console.log('deployer:', account.address);
   console.log('wiring', Object.keys(c).length, 'contracts\n');
@@ -45,6 +46,11 @@ async function main() {
   await wire('farm.setRaidPost', c.QuantumFarm, farm.methods.setRaidPost(c.RaidPost));
   await wire('farm.setStats', c.QuantumFarm, farm.methods.setStats(c.TraitStats));
   await wire('post.setStats', c.RaidPost, post.methods.setStats(c.TraitStats));
+
+  // in-game credit: who may charge against it, and the forge's back-reference
+  await wire('farm.setSpender fusion', c.QuantumFarm, farm.methods.setSpender(c.Fusion, true));
+  await wire('farm.setSpender raidPost', c.QuantumFarm, farm.methods.setSpender(c.RaidPost, true));
+  await wire('fusion.setFarm', c.Fusion, fusion.methods.setFarm(c.QuantumFarm));
 
   for (const name of ['QuantumFarm', 'SquirrelGame', 'RaidPost', 'SeasonLedger', 'Quests', 'Fusion']) {
     await wire(`qbtc.addController ${name}`, c.QBTC, qbtc.methods.addController(c[name]));

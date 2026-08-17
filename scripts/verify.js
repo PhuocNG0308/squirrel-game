@@ -61,6 +61,20 @@ async function main() {
   check('post.farm -> QuantumFarm', same(await post.methods.farm().call(), c.QuantumFarm));
   check('post.stats -> TraitStats', same(await post.methods.stats().call(), c.TraitStats));
 
+  // in-game credit: without these, `reinforce` and `fuse` revert rather than
+  // silently charging a player's wallet twice
+  const fusion = at('Fusion', c.Fusion);
+  check('fusion.farm -> QuantumFarm', same(await fusion.methods.farm().call(), c.QuantumFarm));
+  check('farm.spenders[Fusion]', await farm.methods.spenders(c.Fusion).call() === true);
+  check('farm.spenders[RaidPost]', await farm.methods.spenders(c.RaidPost).call() === true);
+
+  if (c.SquirrelLens) {
+    const lens = at('SquirrelLens', c.SquirrelLens);
+    check('lens.farm -> QuantumFarm', same(await lens.methods.farm().call(), c.QuantumFarm));
+    check('lens.game -> SquirrelGame', same(await lens.methods.game().call(), c.SquirrelGame));
+    check('lens.stats -> TraitStats', same(await lens.methods.stats().call(), c.TraitStats));
+  }
+
   console.log('\n=== QBTC CONTROLLERS ===');
   for (const name of ['QuantumFarm', 'SquirrelGame', 'RaidPost', 'SeasonLedger', 'Quests', 'Fusion']) {
     check(`${name} may mint and burn`, await qbtc.methods.controllers(c[name]).call() === true);
@@ -78,6 +92,14 @@ async function main() {
   check('mintCost tier 1 = 175', BigInt(await game.methods.mintCost(15000).call()) === 175n * WEI);
   check('mintCost tier 3 = 700', BigInt(await game.methods.mintCost(45000).call()) === 700n * WEI);
   check('MINIMUM_TO_EXIT = 2 days', (await n(farm, 'MINIMUM_TO_EXIT')) === 172800n);
+  check('withdrawal window = 3 days', (await n(farm, 'WITHDRAW_WINDOW')) === 259200n);
+  check('the guarantee reaches 60%', (await n(farm, 'WITHDRAW_FLOOR_END')) === 6000n);
+  check('a lost draw is half burned', (await n(farm, 'WITHDRAW_LOSS_BURN_BPS')) === 5000n);
+  check('per-draw cap = 5,000 qBTC', (await n(farm, 'MAX_WITHDRAW_PER_DRAW')) === 5000n * WEI);
+  check('starter pack = 3 rigs', (await n(game, 'STARTER_RIGS')) === 3n);
+  check('starter gate off for testnet', (await game.methods.starterGate().call()) === false);
+  check('guided fusion is 40% squirrel',
+    (await n(fusion, 'STARTER_FUSE_SQUIRREL_BPS')) === 4000n);
 
   console.log('\n=== METADATA ===');
   const base = await traits.methods.baseImageURI().call();

@@ -164,7 +164,7 @@ async function main() {
     // without. Any modifier that is read but never applied would show up as
     // an identical result across both runs.
     async function run(withStats) {
-      const { c, game, farm, qbtc } = await deployStack(withStats);
+      const { c, game, farm, qbtc, stats } = await deployStack(withStats);
       const cur = { i: 1 };
       const a = await acquire(c, game, ALICE, 1, 0, cur);
       await stake(c, game, farm, ALICE, a.rigs);
@@ -175,36 +175,49 @@ async function main() {
       const st = await c.call(farm, OWNER, encodeCall('rigState(uint16)', ['uint16'], [a.rigs[0]]));
       const durability = Number(BigInt('0x' + st.replace(/^0x/, '').slice(0, 64)));
 
+      // upkeep is paid out of the credit the same rig just earned, so the
+      // deltas are read there rather than on the ERC-20 balance
+      const credit = () => c.call(farm, OWNER,
+        encodeCall('credit(address)', ['address'], [ALICE])).then(decodeUint);
+
       c.advanceTime(8 * DAY);
-      await c.call(farm, ALICE, encodeCall('withdraw()', [], []));
-      const before = decodeUint(await c.call(qbtc, OWNER,
-        encodeCall('balanceOf(address)', ['address'], [ALICE])));
+      const before = await credit();
       await c.call(farm, ALICE, encodeCall('refuel(uint16[],uint256)',
         ['uint16[]', 'uint256'], [a.rigs, DAY]));
-      const coolant = before - decodeUint(await c.call(qbtc, OWNER,
-        encodeCall('balanceOf(address)', ['address'], [ALICE])));
+      const coolant = before - (await credit());
 
-      const mid = decodeUint(await c.call(qbtc, OWNER,
-        encodeCall('balanceOf(address)', ['address'], [ALICE])));
+      const mid = await credit();
       await c.call(farm, ALICE, encodeCall('repair(uint16[])', ['uint16[]'], [a.rigs]));
-      const repair = mid - decodeUint(await c.call(qbtc, OWNER,
-        encodeCall('balanceOf(address)', ['address'], [ALICE])));
+      const repair = mid - (await credit());
 
-      return { mined, durability, coolant, repair };
+      const m = withStats
+        ? (await c.call(stats, OWNER, encodeCall('rigMods(uint256)', ['uint256'], [a.rigs[0]])))
+          .replace(/^0x/, '').match(/.{64}/g).map((w) => Number(BigInt('0x' + w)))
+        : [10000, 10000, 10000, 10000];
+
+      return { mined, durability, coolant, repair, mods: m };
     }
 
     const on = await run(true);
     const off = await run(false);
 
-    check('hashrate modifier changes what a rig mines', on.mined !== off.mined,
-      `${fmt(on.mined)} with stats vs ${fmt(off.mined)} without`);
+    // Each table now has an exactly-neutral entry that ~30% of rolls land on,
+    // so "with stats differs from without" is only a real expectation when the
+    // sampled rig actually rolled a non-neutral modifier.
+    check('hashrate modifier changes what a rig mines',
+      on.mods[0] === 10000 || on.mined !== off.mined,
+      `${fmt(on.mined)} with stats vs ${fmt(off.mined)} without (hash ${on.mods[0]})`);
     check('wear-rate modifier changes durability lost',
-      on.durability !== off.durability || on.durability === 95,
-      `${on.durability} vs ${off.durability}`);
-    check('coolant modifier changes the refuel bill', on.coolant !== off.coolant,
-      `${fmt(on.coolant)} vs ${fmt(off.coolant)}`);
-    check('repair modifier changes the repair bill', on.repair !== off.repair,
-      `${fmt(on.repair)} vs ${fmt(off.repair)}`);
+      on.mods[1] === 10000 || on.durability !== off.durability,
+      `${on.durability} vs ${off.durability} (wear ${on.mods[1]})`);
+    // a table can now roll neutral in the middle, so a matching bill is only a
+    // failure when the modifier was actually non-neutral
+    check('coolant modifier changes the refuel bill',
+      on.mods[2] === 10000 || on.coolant !== off.coolant,
+      `${fmt(on.coolant)} vs ${fmt(off.coolant)} (draw ${on.mods[2]})`);
+    check('repair modifier changes the repair bill',
+      on.mods[3] === 10000 || on.repair !== off.repair,
+      `${fmt(on.repair)} vs ${fmt(off.repair)} (cost ${on.mods[3]})`);
   }
 
   section('SQUIRREL STATS MOVE REAL OUTCOMES');
@@ -218,9 +231,11 @@ async function main() {
       c.advanceTime(DAY);
       await c.call(farm, ALICE, encodeCall('claim(uint16[])', ['uint16[]'], [a.rigs]));
       // settle the squirrel to realise its tax share
+      const beforeGuard = decodeUint(await c.call(farm, OWNER,
+        encodeCall('credit(address)', ['address'], [ALICE])));
       await c.call(farm, ALICE, encodeCall('claim(uint16[])', ['uint16[]'], [a.squirrels]));
-      const v = await c.call(farm, OWNER, encodeCall('vestingOf(address)', ['address'], [ALICE]));
-      const vested = BigInt('0x' + v.replace(/^0x/, '').match(/.{64}/g)[0]);
+      const vested = decodeUint(await c.call(farm, OWNER,
+        encodeCall('credit(address)', ['address'], [ALICE]))) - beforeGuard;
 
       const g = await c.call(farm, OWNER,
         encodeCall('guardOwner(uint16)', ['uint16'], [a.squirrels[0]]));
@@ -247,8 +262,10 @@ async function main() {
     check('tax-share modifier changes the payout',
       on.mods[3] === 10000 || on.vested !== off.vested,
       `${fmt(on.vested)} vs ${fmt(off.vested)} (tax ${on.mods[3]})`);
+    // tables now span both sides of neutral, so a plunder share below 10000 is
+    // a legitimate roll rather than a bug — only the band is asserted
     check('plunder-share modifier is exposed on the sheet',
-      on.mods[1] >= 10000, `${on.mods[1]}`);
+      on.mods[1] >= 9100 && on.mods[1] <= 12200, `${on.mods[1]}`);
   }
 
   section('EVERY SQUIRREL STAT IS WIRED SOMEWHERE');

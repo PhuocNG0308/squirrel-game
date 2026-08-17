@@ -4,10 +4,12 @@ pragma hyperion >=0.0.1;
 import "./lib/openzeppelin/access/Ownable.hyp";
 import "./lib/openzeppelin/security/Pausable.hyp";
 import "./lib/openzeppelin/security/ReentrancyGuard.hyp";
+import "./lib/CommitReveal.hyp";
 import "./lib/Ops.hyp";
 
 import "./interfaces/ISquirrelGame.hyp";
 import "./interfaces/ITraitStats.hyp";
+import "./interfaces/IQuantumFarm.hyp";
 import "./SquirrelGame.hyp";
 import "./QBTC.hyp";
 
@@ -23,15 +25,44 @@ import "./QBTC.hyp";
  * Inheritance is deterministic — each trait slot takes whichever parent's roll
  * scores higher in TraitStats. No randomness means no commit-reveal, and it
  * makes the outcome something a player can plan toward rather than gamble on.
+ *
+ * `starterFuse` is the one exception, and it is kept apart rather than folded
+ * in: it crosses species, it rolls, and it can therefore only state odds where
+ * `fuse` states a preview. Reusing one function for both would cost the
+ * previewable property, which the app's fusion sheet is built on.
  */
 contract Fusion is Ownable, Pausable, ReentrancyGuard {
+    /// @dev a pledged onboarding roll; both parents are already burned
+    struct StarterCommit {
+        ISquirrelGame.QuantumSquirrel child; // the rig outcome, fixed at commit
+        uint64 revealBlock;
+        uint256 salt;
+    }
+
     SquirrelGame public game;
     ITraitStats public stats;
     QBTC public qbtc;
+    IQuantumFarm public farm;
 
     /// @dev flat forge fee, burned, expressed in qBTC
     uint256 public forgeFee = 500 ether;
     uint8 public constant MAX_GENERATION = 5;
+
+    /// @dev odds the guided fusion returns a squirrel rather than a rig
+    uint256 public constant STARTER_FUSE_SQUIRREL_BPS = 4000;
+    /**
+     * Rank of a starter squirrel, written as an index on purpose.
+     *
+     * The index runs opposite to the marketing name — alpha is
+     * `MAX_ALPHA - tierIndex` and the art is `Squirrel_Tier${3 - tierIndex}` —
+     * so "Tier 1" in a spec is ambiguous and index 2 is not. It is the baseline
+     * rank, chosen so a starter roll never devalues a normal random mint.
+     */
+    uint8 public constant STARTER_FUSE_TIER_INDEX = 2;
+
+    mapping(address => StarterCommit) public starterCommits;
+    mapping(address => bool) public starterFused;
+    uint256 public commitNonce;
 
     uint256 public totalForged;
     uint256 public totalBurned;
@@ -43,6 +74,9 @@ contract Fusion is Ownable, Pausable, ReentrancyGuard {
         uint256 parentB,
         uint8 generation
     );
+    event StarterFuseCommitted(address indexed owner, uint16 a, uint16 b, uint64 revealBlock);
+    event StarterFuseReanchored(address indexed owner, uint64 revealBlock);
+    event StarterFused(address indexed owner, uint256 indexed tokenId, bool squirrel);
 
     constructor(address _game, address _stats, address _qbtc) {
         game = SquirrelGame(_game);
@@ -76,8 +110,7 @@ contract Fusion is Ownable, Pausable, ReentrancyGuard {
 
         ISquirrelGame.QuantumSquirrel memory child = _combine(ta, tb);
 
-        qbtc.burn(_msgSender(), forgeFee);
-        totalBurned += forgeFee;
+        _charge(_msgSender(), forgeFee);
 
         game.forgeBurn(a);
         game.forgeBurn(b);
@@ -86,6 +119,123 @@ contract Fusion is Ownable, Pausable, ReentrancyGuard {
         totalForged += 1;
 
         emit Forged(_msgSender(), tokenId, a, b, genA + 1);
+    }
+
+    /**
+     * Takes the forge fee from in-game credit first, then the wallet balance.
+     *
+     * A player who just mined 3,617 qBTC should be able to pay a 500 qBTC fee
+     * with it. Before credit existed the yield was locked in escrow and the fee
+     * was unpayable out of the very thing that earned it.
+     */
+    function _charge(address account, uint256 amount) internal {
+        uint256 covered;
+        if (address(farm) != address(0)) covered = farm.spendCredit(account, amount);
+        if (amount > covered) qbtc.burn(account, amount - covered);
+        totalBurned += amount;
+    }
+
+    /* ------------------------------------------------------ ONBOARDING */
+
+    /**
+     * Step 1 of 2 — burn two starter rigs and pledge the roll to a future block.
+     *
+     * Both parents are burned here rather than at the reveal, so nothing can be
+     * sold or transferred out from under an outcome that is already pledged.
+     * The rig branch is settled now too, since it is the same deterministic
+     * `_combine` as `fuse`; only the species and, if it turns, the squirrel's
+     * traits wait on the block hash.
+     */
+    function starterFuse(uint16 a, uint16 b) external whenNotPaused nonReentrant {
+        require(!starterFused[_msgSender()], "Starter fusion already used");
+        require(game.started(_msgSender()), "Buy a starter pack first");
+        require(a != b, "Pick two different tokens");
+        require(game.ownerOf(a) == _msgSender(), "Not your token");
+        require(game.ownerOf(b) == _msgSender(), "Not your token");
+
+        /**
+         * Only the pack's own rigs. Without this the guided fusion is a free
+         * `fuse()` — same deterministic child, no 500 qBTC fee — and since
+         * addresses are free, a large holder would route every fusion through a
+         * fresh wallet: buy a pack, walk two good rigs in, forge, walk the
+         * child out. Restricting it to the baseline loadout the pack ships
+         * means there is nothing worth walking in.
+         */
+        ISquirrelGame.QuantumSquirrel memory ta = game.getTokenTraits(a);
+        ISquirrelGame.QuantumSquirrel memory tb = game.getTokenTraits(b);
+        require(_isStarterRig(ta) && _isStarterRig(tb), "Starter fusion takes two starter rigs");
+        require(game.generationOf(a) == 0 && game.generationOf(b) == 0, "Generation 0 only");
+
+        starterFused[_msgSender()] = true;
+
+        uint64 rb = CommitReveal.targetBlock();
+        starterCommits[_msgSender()] = StarterCommit({
+            child: _combine(ta, tb),
+            revealBlock: rb,
+            salt: CommitReveal.salt(_msgSender(), commitNonce++)
+        });
+
+        game.forgeBurn(a);
+        game.forgeBurn(b);
+        emit StarterFuseCommitted(_msgSender(), a, b, rb);
+    }
+
+    /**
+     * Step 2 of 2 — roll the species and mint.
+     *
+     * Permissionless, and it re-anchors itself when it finds a dead block hash,
+     * so the player only ever presses the same button again a block later.
+     */
+    function settleStarterFuse(address owner)
+        public
+        whenNotPaused
+        nonReentrant
+        returns (uint256 tokenId)
+    {
+        StarterCommit memory c = starterCommits[owner];
+        require(c.revealBlock != 0, "No pending fusion");
+
+        if (CommitReveal.isExpired(c.revealBlock)) {
+            StarterCommit storage s = starterCommits[owner];
+            s.revealBlock = CommitReveal.targetBlock();
+            s.salt = CommitReveal.salt(owner, commitNonce++);
+            emit StarterFuseReanchored(owner, s.revealBlock);
+            return 0;
+        }
+
+        uint256 seed = CommitReveal.seed(c.revealBlock, c.salt);
+        delete starterCommits[owner];
+
+        ISquirrelGame.QuantumSquirrel memory child = c.child;
+        bool squirrel = seed % 10000 < STARTER_FUSE_SQUIRREL_BPS;
+        if (squirrel) {
+            child = game.rollTraits(seed, false);
+            child.tierIndex = STARTER_FUSE_TIER_INDEX;
+        }
+
+        tokenId = game.forgeMint(owner, child, 1);
+        totalForged += 1;
+        emit StarterFused(owner, tokenId, squirrel);
+    }
+
+    function settleStarterFuse() external returns (uint256) {
+        return settleStarterFuse(_msgSender());
+    }
+
+    /**
+     * The loadout `startGame` mints: index 1 in the four mechanical slots,
+     * index 0 in the cosmetic ones. Must track `SquirrelGame._starterRig`.
+     */
+    function _isStarterRig(ISquirrelGame.QuantumSquirrel memory t) internal view returns (bool) {
+        uint8 k = game.STARTER_TRAIT_INDEX();
+        return t.isQuantum
+            && t.chassis == k && t.head == k && t.nose == k && t.feet == k
+            && t.ears == 0 && t.eyes == 0 && t.mouth == 0 && t.neck == 0 && t.tierIndex == 0;
+    }
+
+    function canSettleStarterFuse(address owner) external view returns (bool) {
+        StarterCommit storage c = starterCommits[owner];
+        return c.revealBlock != 0 && CommitReveal.isReady(c.revealBlock);
     }
 
     /**
@@ -129,6 +279,7 @@ contract Fusion is Ownable, Pausable, ReentrancyGuard {
 
     function setForgeFee(uint256 v) external onlyOwner { forgeFee = v; }
     function setStats(address v) external onlyOwner { stats = ITraitStats(v); }
+    function setFarm(address v) external onlyOwner { farm = IQuantumFarm(v); }
 
     function setPaused(bool v) external onlyOwner {
         if (v) _pause(); else _unpause();

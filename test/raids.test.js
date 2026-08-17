@@ -44,6 +44,9 @@ async function deployStack() {
   await c.call(game, OWNER, encodeCall('setFarm(address)', ['address'], [farm]));
   await c.call(traits, OWNER, encodeCall('setGame(address)', ['address'], [game]));
   await c.call(farm, OWNER, encodeCall('setRaidPost(address)', ['address'], [post]));
+  // firewall points are charged against in-game credit before the wallet
+  await c.call(farm, OWNER, encodeCall('setSpender(address,bool)',
+    ['address', 'bool'], [post, true]));
   for (const ctrl of [farm, game, post, ledger]) {
     await c.call(qbtc, OWNER, encodeCall('addController(address)', ['address'], [ctrl]));
   }
@@ -90,13 +93,14 @@ const stake = async (c, game, farm, who, ids) => {
 const balanceOf = async (c, qbtc, who) =>
   decodeUint(await c.call(qbtc, OWNER, encodeCall('balanceOf(address)', ['address'], [who])));
 
-/** Gives `who` spendable qBTC by mining a staked rig and fully vesting it. */
+const creditOf = async (c, farm, who) =>
+  decodeUint(await c.call(farm, OWNER, encodeCall('credit(address)', ['address'], [who])));
+
+/** Gives `who` spendable in-game credit by mining a staked rig and claiming. */
 async function fund(c, farm, qbtc, who, rigIds) {
   c.advanceTime(DAY);
   await c.call(farm, who, encodeCall('claim(uint16[])', ['uint16[]'], [rigIds]));
-  c.advanceTime(8 * DAY);
-  await c.call(farm, who, encodeCall('withdraw()', [], []));
-  return balanceOf(c, qbtc, who);
+  return creditOf(c, farm, who);
 }
 
 /* ------------------------------------------------------------------ MAIN */
@@ -109,7 +113,7 @@ async function main() {
     const a = await acquire(c, game, ALICE, 1, 0, cur);
     await stake(c, game, farm, ALICE, a.rigs);
     const funded = await fund(c, farm, qbtc, ALICE, a.rigs);
-    check('rig owner has qBTC to spend', funded > 0n, `${fmt(funded)} qBTC`);
+    check('rig owner has credit to spend', funded > 0n, `${fmt(funded)} qBTC`);
 
     const f0 = decodeUint(await c.call(post, OWNER,
       encodeCall('firewallOf(uint16)', ['uint16'], [a.rigs[0]])));
@@ -120,8 +124,11 @@ async function main() {
       encodeCall('firewallOf(uint16)', ['uint16'], [a.rigs[0]])));
     check('reinforcing adds a point', f1 === 1n, `${f1}`);
 
-    const spent = funded - (await balanceOf(c, qbtc, ALICE));
-    check('reinforcing burns qBTC', spent > 0n, `${fmt(spent)} qBTC`);
+    // credit pays first, and the wallet was never touched
+    const spent = funded - (await creditOf(c, farm, ALICE));
+    check('reinforcing spends credit', spent > 0n, `${fmt(spent)} qBTC`);
+    check('and never reached the ERC-20 balance',
+      (await balanceOf(c, qbtc, ALICE)) === 0n);
 
     let threw = false;
     try {
@@ -242,10 +249,9 @@ async function main() {
     check('a raid eventually lands and records a steal', stolen > 0n,
       `${fmt(stolen)} qBTC after ${attempts} attempt(s)`);
 
-    const v = await c.call(farm, OWNER, encodeCall('vestingOf(address)', ['address'], [ALICE]));
-    const vw = v.replace(/^0x/, '').match(/.{64}/g);
-    check('the stolen yield is vesting for the raider', BigInt('0x' + vw[0]) > 0n,
-      `${fmt(BigInt('0x' + vw[0]))} qBTC`);
+    check('the stolen yield lands as credit for the raider',
+      (await creditOf(c, farm, ALICE)) > 0n,
+      `${fmt(await creditOf(c, farm, ALICE))} qBTC`);
   }
 
   section('DEFENCE RANK DECAY');
@@ -261,9 +267,9 @@ async function main() {
     check('tax reached the Drey', perAlpha > 0n, `${fmt(perAlpha)} per alpha`);
 
     // claim the squirrel's share immediately, at full rank
+    const beforeGuard = await creditOf(c, farm, ALICE);
     await c.call(farm, ALICE, encodeCall('claim(uint16[])', ['uint16[]'], [a.squirrels]));
-    const atFull = await c.call(farm, OWNER, encodeCall('vestingOf(address)', ['address'], [ALICE]));
-    const full = BigInt('0x' + atFull.replace(/^0x/, '').match(/.{64}/g)[0]);
+    const full = (await creditOf(c, farm, ALICE)) - beforeGuard;
     check('a freshly patched squirrel draws its share', full > 0n, `${fmt(full)} qBTC`);
 
     let threw = false;
